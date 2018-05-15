@@ -1,0 +1,1296 @@
+---
+title: "Decisions.Summary.Tables"
+author: "Monica, Dheeman, Quinn"
+date: "4/27/2018"
+output: html_document
+---
+
+#Table of Contents
+
+
+
+##Unknown, Known, Stepwise and Clustering
+
+##UD vs. DD models
+
+##Session 7 & 8 testing
+
+##Split Decision (Training/Testing)
+
+##5-Fold CV
+
+
+```{R, Data & Libraries, echo = F, warnings = F, errors = F, messages = F}
+library(dplyr)
+library(MASS)
+library(caret)
+library(randomForest)
+library(gbm)
+library(e1071)
+library(class)
+library(mclust)
+library(ggplot2)
+library(leaps)
+#library(klaR) #function - stepclass
+library(stringr)
+
+#Known =read.csv("~/Desktop/702.Final/Final Project 702/known.csv")[,-1]
+Known = read.csv("/Users/DheemanSaha/Dropbox/Data_Science/STAT-702/Final_Exam/known.csv")[,-1]
+#Known <- read.csv("D:/Users/Quinn Fargen/Desktop/Final Code 702/known.csv")[,-1]
+Known <- as.data.frame(Known)
+
+Unknown = read.csv("/Users/DheemanSaha/Dropbox/Data_Science/STAT-702/Final_Exam/unknown.csv")[,-1]
+#Unknown =read.csv("~/Desktop/702.Final/Final Project 702/unknown.csv")
+#Unknown <- read.csv("D:/Users/Quinn Fargen/Desktop/Final Code 702/unknown.csv")
+Unknown <- as.data.frame(Unknown)
+
+#names(Known)
+#Transformations
+Predictors <- Known[,c(4:34)] #mistake
+Predictors <- Known[,c(4:35)]
+Predictors <- log2(Predictors + 2)
+
+Known.Trans <- cbind(Known[,c(1:3)], Predictors)
+
+Predictors <- Unknown[,c(3:33)]
+Predictors <- log2(Predictors + 2)
+
+Unknown.Trans <- cbind(Unknown[,c(1,2)], Predictors)
+```
+
+
+
+
+## Stepwise selection
+
+
+```{R, Unknown&Known Step & Clustering}
+####Clustering and Unknown
+Heir.Unknown <- hclust(dist(Unknown.Trans[,-c(1)]), method = "complete")
+#plot(Heir.Unknown)
+Clust.Value  <-   cutree(Heir.Unknown, 51)
+Unknown.Step <- cbind(Clust.Value = as.vector(Clust.Value), Unknown.Trans)
+
+
+lm_model<-lm(Clust.Value~.,data = Unknown.Step)
+model51<-step(lm_model,method="both") #29 var
+(model51) #Remove: H.t, UD.t.i, H.e, DD.e.five, UD.e.five ,H.five,UD.five.Shift.r, H.Shift.r,                          #         DD.Shift.r.o, UD.Shift.r.o, H.o, DD.o.a, UD.o.a, DD.n.l, UD.n.l, H.Return   
+
+
+
+Heir.Unknown <- hclust(dist(Unknown.Trans[,-c(1)]), method = "complete")
+#plot(Heir.Unknown)
+Clust.Value  <-   cutree(Heir.Unknown, 73)
+Unknown.Step <- cbind(session.id = Unknown$session.id,
+                      Clust.Value = as.vector(Clust.Value), 
+                      Unknown.Trans[,-c(1)])
+
+
+
+lm_model<-lm(Clust.Value~.,data = Unknown.Step)
+model73<-step(lm_model,method="both") #29 var
+(model73) # Keep: rep,H.period,DD.t.i,UD.t.i,UD.i.e,DD.Shift.r.o,H.o,UD.o.a,H.a,DD.n.l,H.l + 
+                  # DD.l.Return, UD.l.Return
+
+model51; model73; colnames(Unknown)
+
+################################################################
+#Known Stepwise
+#Subject.Num<- as.numeric(Known$subject)
+Subject.Factor <- as.factor(known$subject)
+#Known.Step <- cbind(Subject.Num, Known.Trans[,-c(1)])
+Known.Step <- cbind(Subject.Factor, Known.Trans[,-c(1)])
+
+Know.Step = Known.Step[,-c(1)]
+
+# list_subjects = gsub("s",'', Known$subject) 
+# Subject.Factor = as.factor(list_subjects)
+# Know.Step = cbind(Subject.Factor, Known.Trans[,-c(1,2)])
+
+New_Variable_Step = cbind(subject = known$subject, Known.Trans[,-c(1,2)])
+
+#logistic Regression
+unique_sub = unique(New_Variable_Step$subject)
+k = 1
+for(i in 1:length(unique_sub))
+{
+  select_sub = (New_Variable_Step$subject == unique_sub[i])
+  new_data = cbind(select_sub, New_Variable_Step[,-1])
+  #new_data = New_Variable_Step[New_Variable_Step$subject == select_sub, ]
+  lm_fit = lm(select_sub ~ ., data = new_data)
+  ModelK[i] = step(lm_fit, method = "both")
+  k = k +1 
+}
+#AIC(ModelK)
+#List of variables from AIC
+#sessionIndex, H.period, UD.period.t, H.t, DD.t.i,
+#UD.t.i, UD.i.e,  H.five, DD.Shift.r.o, UD.Shift.r.o, 
+#H.o, H.a, H.n, DD.n.l, UD.n.l, DD.l.Return, UD.l.Return
+#(ModelK)
+
+#Known.lm <- lm(Subject.Num ~ ., data = Known.Step)
+#Known.lm <- lm(Subject.Factor ~ ., data = Known.Step)
+#Known.lm = lm(as.numeric(Know.Step$Subject.Factor) ~ ., data = Know.Step)
+#Known.lm = lda(Know.Step$Subject.Factor ~ ., data = Know.Step)
+#ModelK <- step(Known.lm, method = "both")
+
+#step <- stepAIC(Known.lm, direction="both")
+
+#regfit.fwd <- regsubsets(Subject.Factor~.,data=Known.Step,nvmax=33,method="forward")
+#(ModelK) #Remove: DD.i.e, UD.i.e, H.five, UD.Shift.r.o, H.o, H.a
+```
+
+
+
+
+
+
+##UD and DD
+
+
+
+
+```{R, UD DD Data}
+#UD and DD Datasets
+Known_UD <- Known.Trans[,c(1:3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33)]
+
+Known_DD <- Known.Trans[, c(1:3, 5, 8, 11, 14, 17, 20, 23, 26, 29, 32)]
+
+#60 40
+set.seed(5)
+split <- sample(seq_len(nrow(Known_UD)), size = floor(.6 * nrow(Known_UD)))
+Train.60_UD <- Known_UD[split,]; Train.60_UD$subject <- as.factor(Train.60_UD$subject)
+Test.40_UD <- Known_UD[-split,]; Test.40_UD$subject <- as.factor(Test.40_UD$subject)
+
+split <- sample(seq_len(nrow(Known_DD)), size = floor(.6 * nrow(Known_DD)))
+Train.60_DD <- Known_DD[split,]; Train.60_DD$subject <- as.factor(Train.60_DD$subject)
+Test.40_DD <- Known_DD[-split,]; Test.40_DD$subject <- as.factor(Test.40_DD$subject)
+
+```
+
+
+```{R, LDA UD DD}
+######################################################################################################
+set.seed(5)
+LDA.Orig = lda(subject~., data=Train.60_DD, prior =rep(1/51, 51));  pred.Orig=NULL
+
+for (i in unique(Test.40_DD$subject)){
+  tst.i = new.data = Test.40_DD[Test.40_DD$subject==i,-1]
+  pred.Orig = rbind(pred.Orig, table(predict(LDA.Orig, newdata=tst.i)$class))
+}; rownames(pred.Orig) = paste(unique(Test.40_DD$subject))
+  #Grouping                                                                               #0.5882
+mean(unique(Test.40_DD$subject) == colnames(pred.Orig)[apply(pred.Orig, 1, which.max)])
+  #Obs Error
+Obs.pred.O <- predict(LDA.Orig, Test.40_DD)$class
+confusionMatrix(Obs.pred.O , Test.40_DD$subject)$overall[1]                               #0.4669
+######################################################################################################
+set.seed(5)
+LDA.Orig = lda(subject~., data=Train.60_UD, prior =rep(1/51, 51));  pred.Orig=NULL
+
+for (i in unique(Test.40_UD$subject)){
+  tst.i = new.data = Test.40_UD[Test.40_UD$subject==i,-1]
+  pred.Orig = rbind(pred.Orig, table(predict(LDA.Orig, newdata=tst.i)$class))
+}; rownames(pred.Orig) = paste(unique(Test.40_UD$subject))
+  #Grouping                                                                               #0.7843
+mean(unique(Test.40_UD$subject) == colnames(pred.Orig)[apply(pred.Orig, 1, which.max)])
+  #Obs Error
+Obs.pred.O <- predict(LDA.Orig, Test.40_UD)$class
+confusionMatrix(Obs.pred.O , Test.40_UD$subject)$overall[1]                               #0.5176
+```
+
+```{R, RF, UD DD}
+######################################################################################################
+set.seed(702)
+K.RF <- randomForest((subject) ~ ., data = Train.60_DD, control = list(maxit = 50))
+  #Grouping
+pred.60.40=NULL
+for (i in unique(Test.40_DD$subject)){
+  tst.i=new.data=Test.40_DD[Test.40_DD$subject==i,-1]
+  pred.60.40=rbind(pred.60.40, table(predict(K.RF, newdata=tst.i)))
+}; rownames(pred.60.40)=paste(unique(Test.40_DD$subject))
+mean(unique(Test.40_DD$subject)==colnames(pred.60.40)[apply(pred.60.40, 1, which.max)])     #0.9608
+  #Obs
+K.RF.pred <- predict(K.RF, newdata = Test.40_DD, type = "class" )
+confusionMatrix((K.RF.pred), (Test.40_DD$subject))$overall[1]                               #0.7890
+set.seed(702)
+######################################################################################################
+K.RF <- randomForest((subject) ~ ., data = Train.60_UD, control = list(maxit = 50))
+  #Grouping
+pred.60.40=NULL
+for (i in unique(Test.40_UD$subject)){
+  tst.i=new.data=Test.40_UD[Test.40_UD$subject==i,-1]
+  pred.60.40=rbind(pred.60.40, table(predict(K.RF, newdata=tst.i)))
+}; rownames(pred.60.40)=paste(unique(Test.40_UD$subject))
+mean(unique(Test.40_UD$subject)==colnames(pred.60.40)[apply(pred.60.40, 1, which.max)])     #0.9804
+  #Obs
+K.RF.pred <- predict(K.RF, newdata = Test.40_UD, type = "class" )
+confusionMatrix((K.RF.pred), (Test.40_UD$subject))$overall[1]                               #0.7975
+```
+
+```{r, Bagging DD UD}
+######################################################################################################
+set.seed(702)
+K.Bag <- randomForest(subject ~ ., data = Train.60_DD, mtry = 12, control = list(maxit = 50))
+  #Grouping
+pred.Bag=NULL
+for (i in unique(Test.40_DD$subject)){
+  tst.i=new.data=Test.40_DD[Test.40_DD$subject==i,-1]
+  pred.Bag=rbind(pred.Bag,table(predict(K.Bag, newdata=tst.i)))
+}; rownames(pred.Bag)=paste(unique(Test.40_DD$subject))
+mean(unique(Test.40_DD$subject)== colnames(pred.Bag)[apply(pred.Bag, 1, which.max)])    #0.9608
+#Obs
+K.Bag.pred <- predict(K.Bag, newdata = Test.40_DD, type = "class" )
+confusionMatrix(K.Bag.pred, Test.40_DD$subject)$overall[1]                              #0.7426
+######################################################################################################
+set.seed(702)
+K.Bag <- randomForest(subject ~ ., data = Train.60_UD, mtry = 12, control = list(maxit = 50))
+  #Grouping
+pred.Bag=NULL
+for (i in unique(Test.40_UD$subject)){
+  tst.i=new.data=Test.40_UD[Test.40_UD$subject==i,-1]
+  pred.Bag=rbind(pred.Bag,table(predict(K.Bag, newdata=tst.i)))
+}; rownames(pred.Bag)=paste(unique(Test.40_UD$subject))
+mean(unique(Test.40_UD$subject)== colnames(pred.Bag)[apply(pred.Bag, 1, which.max)])     #0.9608
+#Obs
+K.Bag.pred <- predict(K.Bag, newdata = Test.40_UD, type = "class" )
+confusionMatrix(K.Bag.pred, Test.40_UD$subject)$overall[1]                               #0.7553
+```
+
+```{r,Boosting UD DD}
+######################################################################################################
+set.seed(702)
+K.Boost <-  gbm(subject ~ ., data = Train.60_DD, 
+                distribution = "multinomial",  n.trees = 1000) #Takes a while to run
+#Grouping
+pred.60.40=NULL
+for (i in unique(Test.40_DD$subject)){
+  tst.i=new.data=Test.40_DD[Test.40_DD$subject==i,-1]
+  pred.60.40=rbind(pred.60.40,
+                 table(unique(Test.40_DD$subject)[apply(predict(K.Boost, 
+                      newdata=tst.i, n.trees = 1000),1, which.max)]))
+};rownames(pred.60.40)=paste(unique(Test.40_DD$subject))
+mean(unique(Test.40_DD$subject)==colnames(pred.60.40)[apply(pred.60.40, 1, which.max)]) #0.7058
+  #Obs
+K.Boost.pred <- predict(K.Boost, newdata = Test.40_DD,n.trees = 1000, type = "response")
+K.Boost.pred <- apply(K.Boost.pred, 1, which.max)
+confusionMatrix(unique(Test.40_DD$subject)[K.Boost.pred], 
+                Test.40_DD$subject)$overall[1]                                         #0.4430
+######################################################################################################
+set.seed(702)
+K.Boost <-  gbm(subject ~ ., data = Train.60_UD, 
+                distribution = "multinomial",  n.trees = 1000) #Takes a while to run
+#Grouping
+pred.60.40=NULL
+for (i in unique(Test.40_UD$subject)){
+tst.i=new.data=Test.40_UD[Test.40_UD$subject==i,-1]
+pred.60.40=rbind(pred.60.40,
+                 table(unique(Test.40_UD$subject)[apply(predict(K.Boost, 
+                      newdata=tst.i, n.trees = 1000),1, which.max)]))
+};rownames(pred.60.40)=paste(unique(Test.40_UD$subject))
+mean(unique(Test.40_UD$subject)==colnames(pred.60.40)[apply(pred.60.40, 1, which.max)]) #0.7843
+  #Obs
+K.Boost.pred <- predict(K.Boost, newdata = Test.40_UD,n.trees = 1000, type = "response")
+K.Boost.pred <- apply(K.Boost.pred, 1, which.max)
+confusionMatrix(unique(Test.40_UD$subject)[K.Boost.pred], 
+                Test.40_UD$subject)$overall[1]                                          # 0.5218
+```
+
+```{r, SVM UD DD}
+#Radial
+set.seed(702)
+svm_tune<-tune(svm,factor(subject)~.,data = Train.60_DD,kernel="radial",
+               ranges = list(cost=c(0.01,0.1,1,5,10)),
+               gamma=c(0.1,0.5,1,2,5)); svm_best_model <- svm_tune$best.model
+set.seed(702)
+svm_model1<-svm(factor(subject)~.,data = Train.60_DD, kernel="radial",
+                cost=svm_best_model$cost, gamma = svm_best_model$gamma)
+svm_pred1<-predict(svm_model1,newdata = Test.40_DD, type = "class")
+  #Grouping
+pred.SVM=NULL
+for (i in unique(Test.40_DD$subject)){
+  tst.i=new.data=Test.40_DD[Test.40_DD$subject==i,-1]
+  pred.SVM=rbind(pred.SVM,table(predict(svm_model1, newdata=tst.i, type = "class")))
+};rownames(pred.SVM)=paste(unique(Test.40_DD$subject))
+mean(unique(Test.40_DD$subject)== colnames(pred.SVM)[apply(pred.SVM, 1, which.max)]) #0.9804
+  #Obs
+confusionMatrix(svm_pred1, as.factor(Test.40_DD$subject))$overall[1]                 #0.6653
+
+#### UD
+set.seed(702)
+svm_tune<-tune(svm,factor(subject)~.,data = Train.60_UD,kernel="radial",
+               ranges = list(cost=c(0.01,0.1,1,5,10)),
+               gamma=c(0.1,0.5,1,2,5)); svm_best_model <- svm_tune$best.model
+set.seed(702)
+svm_model1<-svm(factor(subject)~.,data = Train.60_UD, kernel="radial",
+                cost=svm_best_model$cost, gamma = svm_best_model$gamma)
+svm_pred1<-predict(svm_model1,newdata = Test.40_UD, type = "class")
+  #Grouping
+pred.SVM=NULL
+for (i in unique(Test.40_UD$subject)){
+  tst.i=new.data=Test.40_UD[Test.40_UD$subject==i,-1]
+  pred.SVM=rbind(pred.SVM,table(predict(svm_model1, newdata=tst.i, type = "class")))
+};rownames(pred.SVM)=paste(unique(Test.40_UD$subject))
+mean(unique(Test.40_UD$subject)== colnames(pred.SVM)[apply(pred.SVM, 1, which.max)]) #0.9608
+  #Obs
+confusionMatrix(svm_pred1, as.factor(Test.40_UD$subject))$overall[1]                 #0.6878
+######################################################################################################
+  #poly
+set.seed(702)
+svm_tune<-tune(svm,factor(subject)~.,data = Train.60_DD,kernel="polynomial",
+               ranges = list(cost=c(0.01,0.1,1,5,10)),
+              degree = c(2, 3, 4, 5)); svm_best_model <- svm_tune$best.model
+set.seed(702)
+svm_model1<-svm(factor(subject)~.,data = Train.60_DD, kernel="polynomial",
+                cost=svm_best_model$cost, degree = svm_best_model$degree)
+svm_pred1<-predict(svm_model1,newdata = Test.40_DD, type = "class")
+  #Grouping
+pred.SVM=NULL
+for (i in unique(Test.40_DD$subject)){
+  tst.i=new.data=Test.40_DD[Test.40_DD$subject==i,-1]
+  pred.SVM=rbind(pred.SVM,table(predict(svm_model1, newdata=tst.i, type = "class")))
+};rownames(pred.SVM)=paste(unique(Test.40_DD$subject))
+mean(unique(Test.40_DD$subject)== colnames(pred.SVM)[apply(pred.SVM, 1, which.max)])  #0.8627
+  #Obs
+confusionMatrix(svm_pred1, as.factor(Test.40_DD$subject))$overall[1]                  #0.6146
+
+### UD
+set.seed(702)
+svm_tune<-tune(svm,factor(subject)~.,data = Train.60_UD,kernel="polynomial",
+               ranges = list(cost=c(0.01,0.1,1,5,10)),
+              degree = c(2, 3, 4, 5)); svm_best_model <- svm_tune$best.model
+set.seed(702)
+svm_model1<-svm(factor(subject)~.,data = Train.60_UD, kernel="polynomial",
+                cost=svm_best_model$cost, degree = svm_best_model$degree)
+svm_pred1<-predict(svm_model1,newdata = Test.40_UD, type = "class")
+  #Grouping
+pred.SVM=NULL
+for (i in unique(Test.40_UD$subject)){
+  tst.i=new.data=Test.40_UD[Test.40_UD$subject==i,-1]
+  pred.SVM=rbind(pred.SVM,table(predict(svm_model1, newdata=tst.i, type = "class")))
+};rownames(pred.SVM)=paste(unique(Test.40_UD$subject))
+mean(unique(Test.40_UD$subject)== colnames(pred.SVM)[apply(pred.SVM, 1, which.max)]) #0.9216
+  #Obs
+confusionMatrix(svm_pred1, as.factor(Test.40_UD$subject))$overall[1]                 #0.6273
+######################################################################################################
+  #linear
+set.seed(702)
+svm_tune<-tune(svm,factor(subject)~.,data = Train.60_DD,kernel="linear",
+               ranges = list(cost=c(0.01,0.1,1,5,10))); svm_best_model <- svm_tune$best.model
+set.seed(702)
+svm_model1<-svm(factor(subject)~.,data = Train.60_DD, kernel="linear",
+                cost=svm_best_model$cost)
+svm_pred1<-predict(svm_model1,newdata = Test.40_DD, type = "class")
+  #Grouping
+pred.SVM=NULL
+for (i in unique(Test.40_DD$subject)){
+  tst.i=new.data=Test.40_DD[Test.40_DD$subject==i,-1]
+  pred.SVM=rbind(pred.SVM,table(predict(svm_model1, newdata=tst.i, type = "class")))
+};rownames(pred.SVM)=paste(unique(Test.40_DD$subject))
+mean(unique(Test.40_DD$subject)== colnames(pred.SVM)[apply(pred.SVM, 1, which.max)]) #0.9608
+  #Obs
+confusionMatrix(svm_pred1, as.factor(Test.40_DD$subject))$overall[1]                 #0.6217
+
+###UD
+set.seed(702)
+svm_tune<-tune(svm,factor(subject)~.,data = Train.60_UD,kernel="linear",
+               ranges = list(cost=c(0.01,0.1,1,5,10)));svm_best_model <- svm_tune$best.model
+set.seed(702)
+svm_model1<-svm(factor(subject)~.,data = Train.60_UD, kernel="linear",
+                cost=svm_best_model$cost)
+svm_pred1<-predict(svm_model1,newdata = Test.40_UD, type = "class")
+  #Grouping
+pred.SVM=NULL
+for (i in unique(Test.40_UD$subject)){
+  tst.i=new.data=Test.40_UD[Test.40_UD$subject==i,-1]
+  pred.SVM=rbind(pred.SVM,table(predict(svm_model1, newdata=tst.i, type = "class")))
+};rownames(pred.SVM)=paste(unique(Test.40_UD$subject))
+mean(unique(Test.40_UD$subject)== colnames(pred.SVM)[apply(pred.SVM, 1, which.max)]) #0.9608
+  #Obs
+confusionMatrix(svm_pred1, as.factor(Test.40_UD$subject))$overall[1]                 #0.6737
+```
+
+```{r, Mclust 1 DD UD}
+######################################################################################################
+set.seed(702)
+K.Mclust1 <- MclustDA(Train.60_DD[,2:13], Train.60_DD[,1], G = 1)
+K.Mclust1.pred <- predict.MclustDA(K.Mclust1, newdata = Test.40_DD[,-1])$classification
+  #Grouping
+pred.Clust=NULL
+for (i in unique(Test.40_DD$subject)){
+  tst.i=new.data=Test.40_DD[Test.40_DD$subject==i,-1]
+  pred.Clust=rbind(pred.Clust,table(predict(K.Mclust1, newdata=tst.i)$classification))
+}; rownames(pred.Clust)=paste(unique(Test.40_DD$subject))
+mean(unique(Test.40_DD$subject) == colnames(pred.Clust)[apply(pred.Clust, 1, which.max)])      #0.5686
+  #Obs
+confusionMatrix((K.Mclust1.pred), (Test.40_DD$subject))$overall[1]                             #0.4093
+
+######################################################################################################
+set.seed(702)
+K.Mclust1 <- MclustDA(Train.60_UD[,2:13], Train.60_UD[,1], G = 1)
+K.Mclust1.pred <- predict.MclustDA(K.Mclust1, newdata = Test.40_UD[,-1])$classification
+  #Grouping
+pred.Clust=NULL
+for (i in unique(Test.40_UD$subject)){
+  tst.i=new.data=Test.40_UD[Test.40_UD$subject==i,-1]
+  pred.Clust=rbind(pred.Clust,table(predict(K.Mclust1, newdata=tst.i)$classification))
+}; rownames(pred.Clust)=paste(unique(Test.40_UD$subject))
+mean(unique(Test.40_UD$subject) == colnames(pred.Clust)[apply(pred.Clust, 1, which.max)])      #0.6667
+  #Obs
+confusionMatrix((K.Mclust1.pred), (Test.40_UD$subject))$overall[1]                             #0.4444
+
+```
+
+```{r, Mclust EDDA DD UD}
+######################################################################################################
+set.seed(702)
+K.Mclust1 <- MclustDA(Train.60_DD[,2:13], Train.60_DD[,1], G = 1, modelType = "EDDA")
+K.Mclust1.pred <- predict.MclustDA(K.Mclust1, newdata = Test.40_DD[,-1])$classification
+  #Grouping
+pred.Clust=NULL
+for (i in unique(Test.40_DD$subject)){
+  tst.i=new.data=Test.40_DD[Test.40_DD$subject==i,-1]
+  pred.Clust=rbind(pred.Clust,table(predict(K.Mclust1, newdata=tst.i)$classification))
+}; rownames(pred.Clust)=paste(unique(Test.40_DD$subject))
+mean(unique(Test.40_DD$subject) == colnames(pred.Clust)[apply(pred.Clust, 1, which.max)])      #0.6078
+  #Obs
+confusionMatrix((K.Mclust1.pred), (Test.40_DD$subject))$overall[1]                             #0.4613
+
+######################################################################################################
+set.seed(702)
+K.Mclust1 <- MclustDA(Train.60_UD[,2:13], Train.60_UD[,1], G = 1, modelType = "EDDA")
+K.Mclust1.pred <- predict.MclustDA(K.Mclust1, newdata = Test.40_UD[,-1])$classification
+  #Grouping
+pred.Clust=NULL
+for (i in unique(Test.40_UD$subject)){
+  tst.i=new.data=Test.40_UD[Test.40_UD$subject==i,-1]
+  pred.Clust=rbind(pred.Clust,table(predict(K.Mclust1, newdata=tst.i)$classification))
+}; rownames(pred.Clust)=paste(unique(Test.40_UD$subject))
+mean(unique(Test.40_UD$subject) == colnames(pred.Clust)[apply(pred.Clust, 1, which.max)])      #0.6667
+  #Obs
+confusionMatrix((K.Mclust1.pred), (Test.40_UD$subject))$overall[1]                             #0.4585
+
+```
+
+
+
+
+```{r 7 & 8 Testing, warning=FALSE, echo=FALSE}
+#t(xtabs(~sessionIndex+subject, data=Known))
+# Ses.8and7 <- Known[
+#                  Known$subject %in% unique(Known$subject)[c(4:6, 8:9, 16:17, 19, 21, 23:24,
+#                                                           29, 31, 34, 37:38, 43:47)], ]
+# t(xtabs(~sessionIndex+subject, data=Ses.8and7))
+# 
+# Ses.8 <- Known[Known$sessionIndex == 8, -c(1,2,3)]
+# 
+# #colnames(Ses.8)
+# 
+# Ses.7 <- Known[Known$sessionIndex == 7, -c(1,2,3)]
+# ####Mann-whitney-Wilcoxon Test
+# Mann.Whitney <- Known[,-c(1,3)]; Mann.Whitney$sessionIndex <- factor(Mann.Whitney$sessionIndex)
+# 
+# 
+# P.Wilcox <- NULL
+# for(i in 1:dim(Ses.7)[2])
+# {
+# P.Wilcox[i] <- wilcox.test(as.formula(paste(colnames(Mann.Whitney)[i + 1],
+#                                             " ~ sessionIndex")), 
+#                            data = Mann.Whitney)$p.value
+# }
+# plot(P.Wilcox)
+# Adj.P.Wilcox <- p.adjust(P.Wilcox, method = "bonferroni")
+# plot(Adj.P.Wilcox); abline(.05, 0)
+# round(Adj.P.Wilcox,3)
+#################################################    Works
+####Mann-whitney-Wilcoxon Test only subjects that are within both 7 & 8
+
+Known_Session_8 = Known[Known$sessionIndex == 8, ]
+Known_Session_7 = Known[Known$sessionIndex == 7, ]
+Known_Session_8 = Known_Session_8[,-1]
+Known_Session_7 = Known_Session_7[,-1]
+
+Table_Sub_Index = table(Known$subject, Known$sessionIndex)
+Name_Subject_Common = rownames(Table_Sub_Index[Table_Sub_Index[,1] != 0 & 
+           Table_Sub_Index[,2] != 0,])
+
+Name_Subject_Common = as.vector(Name_Subject_Common)
+
+Session8and7_s005 = Known[Known$subject == "s005", ]
+Session8and7_s005 = Session8and7_s005[,-1]
+
+Session8and7_s007 = Known[Known$subject == "s007", ]
+Session8and7_s007 = Session8and7_s007[,-1]
+
+Session8and7_s008 = Known[Known$subject == "s008", ]
+Session8and7_s008 = Session8and7_s008[,-1]
+
+Session8and7_s011 = Known[Known$subject == "s011", ]
+Session8and7_s011 = Session8and7_s011[,-1]
+
+Session8and7_s012 = Known[Known$subject == "s012", ]
+Session8and7_s012 = Session8and7_s012[,-1]
+
+Session8and7_s020 = Known[Known$subject == "s020", ]
+Session8and7_s020 = Session8and7_s020[,-1]
+
+Session8and7_s021 = Known[Known$subject == "s021", ]
+Session8and7_s021 = Session8and7_s021[,-1]
+
+Session8and7_s024 = Known[Known$subject == "s024", ]
+Session8and7_s024 = Session8and7_s024[,-1]
+
+Session8and7_s026 = Known[Known$subject == "s026", ]
+Session8and7_s026 = Session8and7_s026[,-1]
+
+Session8and7_s028 = Known[Known$subject == "s028", ]
+Session8and7_s028 = Session8and7_s028[,-1]
+
+Session8and7_s029 = Known[Known$subject == "s029", ]
+Session8and7_s029 = Session8and7_s029[,-1]
+
+Session8and7_s034 = Known[Known$subject == "s034", ]
+Session8and7_s034 = Session8and7_s034[,-1]
+
+Session8and7_s036 = Known[Known$subject == "s036", ]
+Session8and7_s036 = Session8and7_s036[,-1]
+
+Session8and7_s039 = Known[Known$subject == "s039", ]
+Session8and7_s039 = Session8and7_s039[,-1]
+
+Session8and7_s042 = Known[Known$subject == "s042", ]
+Session8and7_s042 = Session8and7_s042[,-1]
+
+
+Session8and7_s043 = Known[Known$subject == "s043", ]
+Session8and7_s043 = Session8and7_s043[,-1]
+
+Session8and7_s049 = Known[Known$subject == "s049", ]
+Session8and7_s049 = Session8and7_s049[,-1]
+
+Session8and7_s050 = Known[Known$subject == "s050", ]
+Session8and7_s050 = Session8and7_s050[,-1]
+
+Session8and7_s051 = Known[Known$subject == "s051", ]
+Session8and7_s051 = Session8and7_s051[,-1]
+
+Session8and7_s052 = Known[Known$subject == "s052", ]
+Session8and7_s052 = Session8and7_s052[,-1]
+
+Session8and7_s053 = Known[Known$subject == "s053", ]
+Session8and7_s053 = Session8and7_s053[,-1]
+
+Session8and7_s056 = Known[Known$subject == "s056", ]
+Session8and7_s056 = Session8and7_s056[,-1]
+
+
+#perfroming Whitney Test for each of the common variable
+P_Wilconx_New_s005 <- NULL
+for(i in 1:31) #only considering the time variables
+{
+P_Wilconx_New_s005[i] <- wilcox.test(as.formula(paste(colnames(Session8and7_s005)[i + 3],
+                                            " ~ sessionIndex")), 
+                           data = Session8and7_s005)$p.value
+}
+
+Adj_P_Wilcox_s005 <- p.adjust(P_Wilconx_New_s005, method = "holm")
+data_p_adjust_Wilcox_s005 <- data.frame(p.value = Adj_P_Wilcox_s005)
+p1 <- ggplot(data_p_adjust_Wilcox_s005, aes(1:31,p.value)) + geom_point() + ylim(0,1) + 
+  geom_hline(yintercept = .05, colour = "red") + ylab("Adjusted P Value") + xlab("Time Variables") +
+  ggtitle("subject S005") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+P_Wilconx_New_s007 <- NULL
+for(i in 1:31) #only considering the time variables
+{
+P_Wilconx_New_s007[i] <- wilcox.test(as.formula(paste(colnames(Session8and7_s007)[i + 3],
+                                            " ~ sessionIndex")), 
+                           data = Session8and7_s007)$p.value
+}
+
+Adj_P_Wilcox_s007 <- p.adjust(P_Wilconx_New_s007, method = "holm")
+data_p_adjust_Wilcox_s007 <- data.frame(p.value = Adj_P_Wilcox_s007)
+p2 <- ggplot(data_p_adjust_Wilcox_s007, aes(1:31,p.value)) + geom_point() + ylim(0,1) + 
+  geom_hline(yintercept = .05, colour = "red") + ylab("Adjusted P Value") + xlab("Time Variables") +
+  ggtitle("subject S007") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+
+P_Wilconx_New_s008 <- NULL
+for(i in 1:31) #only considering the time variables
+{
+P_Wilconx_New_s008[i] <- wilcox.test(as.formula(paste(colnames(Session8and7_s008)[i + 3],
+                                            " ~ sessionIndex")), 
+                           data = Session8and7_s008)$p.value
+}
+
+Adj_P_Wilcox_s008 <- p.adjust(P_Wilconx_New_s008, method = "holm")
+data_p_adjust_Wilcox_s008 <- data.frame(p.value = Adj_P_Wilcox_s008)
+p3 <- ggplot(data_p_adjust_Wilcox_s008, aes(1:31,p.value)) + geom_point() + ylim(0,1) + 
+  geom_hline(yintercept = .05, colour = "red") + ylab("Adjusted P Value") + xlab("Time Variables") +
+  ggtitle("subject S008") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+
+P_Wilconx_New_s011 <- NULL
+for(i in 1:31) #only considering the time variables
+{
+P_Wilconx_New_s011[i] <- wilcox.test(as.formula(paste(colnames(Session8and7_s011)[i + 3],
+                                            " ~ sessionIndex")), 
+                           data = Session8and7_s011)$p.value
+}
+
+Adj_P_Wilcox_s011 <- p.adjust(P_Wilconx_New_s011, method = "holm")
+data_p_adjust_Wilcox_s011 <- data.frame(p.value = Adj_P_Wilcox_s011)
+p4 <- ggplot(data_p_adjust_Wilcox_s011, aes(1:31,p.value)) + geom_point() + ylim(0,1) + 
+  geom_hline(yintercept = .05, colour = "red") + ylab("Adjusted P Value") + xlab("Time Variables") +
+  ggtitle("subject S011") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+
+P_Wilconx_New_s012 <- NULL
+for(i in 1:31) #only considering the time variables
+{
+P_Wilconx_New_s012[i] <- wilcox.test(as.formula(paste(colnames(Session8and7_s012)[i + 3],
+                                            " ~ sessionIndex")), 
+                           data = Session8and7_s012)$p.value
+}
+
+Adj_P_Wilcox_s012 <- p.adjust(P_Wilconx_New_s012, method = "holm")
+data_p_adjust_Wilcox_s012 <- data.frame(p.value = Adj_P_Wilcox_s012)
+p5 <- ggplot(data_p_adjust_Wilcox_s012, aes(1:31,p.value)) + geom_point() + ylim(0,1) + 
+  geom_hline(yintercept = .05, colour = "red") + ylab("Adjusted P Value") + xlab("Time Variables") +
+  ggtitle("subject S012") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+
+P_Wilconx_New_s020 <- NULL
+for(i in 1:31) #only considering the time variables
+{
+P_Wilconx_New_s020[i] <- wilcox.test(as.formula(paste(colnames(Session8and7_s020)[i + 3],
+                                            " ~ sessionIndex")), 
+                           data = Session8and7_s020)$p.value
+}
+
+Adj_P_Wilcox_s020 <- p.adjust(P_Wilconx_New_s020, method = "holm")
+data_p_adjust_Wilcox_s020 <- data.frame(p.value = Adj_P_Wilcox_s020)
+p6 <- ggplot(data_p_adjust_Wilcox_s020, aes(1:31,p.value)) + geom_point() + ylim(0,1) + 
+  geom_hline(yintercept = .05, colour = "red") + ylab("Adjusted P Value") + xlab("Time Variables") +
+  ggtitle("subject S020") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+
+P_Wilconx_New_s021 <- NULL
+for(i in 1:31) #only considering the time variables
+{
+P_Wilconx_New_s021[i] <- wilcox.test(as.formula(paste(colnames(Session8and7_s021)[i + 3],
+                                            " ~ sessionIndex")), 
+                           data = Session8and7_s021)$p.value
+}
+
+Adj_P_Wilcox_s021 <- p.adjust(P_Wilconx_New_s021, method = "holm")
+data_p_adjust_Wilcox_s021 <- data.frame(p.value = Adj_P_Wilcox_s021)
+p7 <- ggplot(data_p_adjust_Wilcox_s021, aes(1:31,p.value)) + geom_point() + ylim(0,1) + 
+  geom_hline(yintercept = .05, colour = "red") + ylab("Adjusted P Value") + xlab("Time Variables") +
+  ggtitle("subject S021") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+
+P_Wilconx_New_s024 <- NULL
+for(i in 1:31) #only considering the time variables
+{
+P_Wilconx_New_s024[i] <- wilcox.test(as.formula(paste(colnames(Session8and7_s024)[i + 3],
+                                            " ~ sessionIndex")), 
+                           data = Session8and7_s024)$p.value
+}
+
+Adj_P_Wilcox_s024 <- p.adjust(P_Wilconx_New_s024, method = "holm")
+data_p_adjust_Wilcox_s024 <- data.frame(p.value = Adj_P_Wilcox_s024)
+p8 <- ggplot(data_p_adjust_Wilcox_s024, aes(1:31,p.value)) + geom_point() + ylim(0,1) + 
+  geom_hline(yintercept = .05, colour = "red") + ylab("Adjusted P Value") + xlab("Time Variables") +
+  ggtitle("subject S024") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+
+P_Wilconx_New_s026 <- NULL
+for(i in 1:31) #only considering the time variables
+{
+P_Wilconx_New_s026[i] <- wilcox.test(as.formula(paste(colnames(Session8and7_s026)[i + 3],
+                                            " ~ sessionIndex")), 
+                           data = Session8and7_s026)$p.value
+}
+
+Adj_P_Wilcox_s026 <- p.adjust(P_Wilconx_New_s026, method = "holm")
+data_p_adjust_Wilcox_s026 <- data.frame(p.value = Adj_P_Wilcox_s026)
+p9 <- ggplot(data_p_adjust_Wilcox_s026, aes(1:31,p.value)) + geom_point() + ylim(0,1) + 
+  geom_hline(yintercept = .05, colour = "red") + ylab("Adjusted P Value") + xlab("Time Variables") +
+  ggtitle("subject S026") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+
+
+P_Wilconx_New_s028 <- NULL
+for(i in 1:31) #only considering the time variables
+{
+P_Wilconx_New_s028[i] <- wilcox.test(as.formula(paste(colnames(Session8and7_s028)[i + 3],
+                                            " ~ sessionIndex")), 
+                           data = Session8and7_s028)$p.value
+}
+
+Adj_P_Wilcox_s028 <- p.adjust(P_Wilconx_New_s028, method = "holm")
+data_p_adjust_Wilcox_s028 <- data.frame(p.value = Adj_P_Wilcox_s028)
+p10 <- ggplot(data_p_adjust_Wilcox_s028, aes(1:31,p.value)) + geom_point() + ylim(0,1) + 
+  geom_hline(yintercept = .05, colour = "red") + ylab("Adjusted P Value") + xlab("Time Variables") +
+  ggtitle("subject S028") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+
+P_Wilconx_New_s029 <- NULL
+for(i in 1:31) #only considering the time variables
+{
+P_Wilconx_New_s029[i] <- wilcox.test(as.formula(paste(colnames(Session8and7_s029)[i + 3],
+                                            " ~ sessionIndex")), 
+                           data = Session8and7_s029)$p.value
+}
+
+Adj_P_Wilcox_s029 <- p.adjust(P_Wilconx_New_s029, method = "holm")
+data_p_adjust_Wilcox_s029 <- data.frame(p.value = Adj_P_Wilcox_s029)
+p11 <- ggplot(data_p_adjust_Wilcox_s029, aes(1:31,p.value)) + geom_point() + ylim(0,1) + 
+  geom_hline(yintercept = .05, colour = "red") + ylab("Adjusted P Value") + xlab("Time Variables") +
+  ggtitle("subject S029") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+P_Wilconx_New_s034 <- NULL
+for(i in 1:31) #only considering the time variables
+{
+P_Wilconx_New_s034[i] <- wilcox.test(as.formula(paste(colnames(Session8and7_s034)[i + 3],
+                                            " ~ sessionIndex")), 
+                           data = Session8and7_s034)$p.value
+}
+
+Adj_P_Wilcox_s034 <- p.adjust(P_Wilconx_New_s034, method = "holm")
+data_p_adjust_Wilcox_s034 <- data.frame(p.value = Adj_P_Wilcox_s034)
+p12 <- ggplot(data_p_adjust_Wilcox_s034, aes(1:31,p.value)) + geom_point() + ylim(0,1) + 
+  geom_hline(yintercept = .05, colour = "red") + ylab("Adjusted P Value") + xlab("Time Variables") +
+  ggtitle("subject S034") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+P_Wilconx_New_s036 <- NULL
+for(i in 1:31) #only considering the time variables
+{
+P_Wilconx_New_s036[i] <- wilcox.test(as.formula(paste(colnames(Session8and7_s036)[i + 3],
+                                            " ~ sessionIndex")), 
+                           data = Session8and7_s036)$p.value
+}
+
+Adj_P_Wilcox_s036 <- p.adjust(P_Wilconx_New_s036, method = "holm")
+data_p_adjust_Wilcox_s036 <- data.frame(p.value = Adj_P_Wilcox_s036)
+p13 <- ggplot(data_p_adjust_Wilcox_s036, aes(1:31,p.value)) + geom_point() + ylim(0,1) + 
+  geom_hline(yintercept = .05, colour = "red") + ylab("Adjusted P Value") + xlab("Time Variables") +
+  ggtitle("subject S036") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+P_Wilconx_New_s039 <- NULL
+for(i in 1:31) #only considering the time variables
+{
+P_Wilconx_New_s039[i] <- wilcox.test(as.formula(paste(colnames(Session8and7_s039)[i + 3],
+                                            " ~ sessionIndex")), 
+                           data = Session8and7_s039)$p.value
+}
+
+Adj_P_Wilcox_s039 <- p.adjust(P_Wilconx_New_s039, method = "holm")
+data_p_adjust_Wilcox_s039 <- data.frame(p.value = Adj_P_Wilcox_s039)
+p14 <- ggplot(data_p_adjust_Wilcox_s039, aes(1:31,p.value)) + geom_point() + ylim(0,1) + 
+  geom_hline(yintercept = .05, colour = "red") + ylab("Adjusted P Value") + xlab("Time Variables") +
+  ggtitle("subject S039") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+P_Wilconx_New_s042 <- NULL
+for(i in 1:31) #only considering the time variables
+{
+P_Wilconx_New_s042[i] <- wilcox.test(as.formula(paste(colnames(Session8and7_s042)[i + 3],
+                                            " ~ sessionIndex")), 
+                           data = Session8and7_s042)$p.value
+}
+
+Adj_P_Wilcox_s042 <- p.adjust(P_Wilconx_New_s042, method = "holm")
+data_p_adjust_Wilcox_s042 <- data.frame(p.value = Adj_P_Wilcox_s042)
+p15 <- ggplot(data_p_adjust_Wilcox_s042, aes(1:31,p.value)) + geom_point() + ylim(0,1) + 
+  geom_hline(yintercept = .05, colour = "red") + ylab("Adjusted P Value") + xlab("Time Variables") +
+  ggtitle("subject S042") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+
+P_Wilconx_New_s043 <- NULL
+for(i in 1:31) #only considering the time variables
+{
+P_Wilconx_New_s043[i] <- wilcox.test(as.formula(paste(colnames(Session8and7_s043)[i + 3],
+                                            " ~ sessionIndex")), 
+                           data = Session8and7_s043)$p.value
+}
+
+Adj_P_Wilcox_s043 <- p.adjust(P_Wilconx_New_s043, method = "holm")
+data_p_adjust_Wilcox_s043 <- data.frame(p.value = Adj_P_Wilcox_s043)
+p16 <- ggplot(data_p_adjust_Wilcox_s043, aes(1:31,p.value)) + geom_point() + ylim(0,1) + 
+  geom_hline(yintercept = .05, colour = "red") + ylab("Adjusted P Value") + xlab("Time Variables") +
+  ggtitle("subject S043") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+P_Wilconx_New_s049 <- NULL
+for(i in 1:31) #only considering the time variables
+{
+P_Wilconx_New_s049[i] <- wilcox.test(as.formula(paste(colnames(Session8and7_s049)[i + 3],
+                                            " ~ sessionIndex")), 
+                           data = Session8and7_s049)$p.value
+}
+
+Adj_P_Wilcox_s049 <- p.adjust(P_Wilconx_New_s049, method = "holm")
+data_p_adjust_Wilcox_s049 <- data.frame(p.value = Adj_P_Wilcox_s049)
+p17 <- ggplot(data_p_adjust_Wilcox_s049, aes(1:31,p.value)) + geom_point() + ylim(0,1) + 
+  geom_hline(yintercept = .05, colour = "red") + ylab("Adjusted P Value") + xlab("Time Variables") +
+  ggtitle("subject S049") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+P_Wilconx_New_s050 <- NULL
+for(i in 1:31) #only considering the time variables
+{
+P_Wilconx_New_s050[i] <- wilcox.test(as.formula(paste(colnames(Session8and7_s050)[i + 3],
+                                            " ~ sessionIndex")), 
+                           data = Session8and7_s050)$p.value
+}
+
+Adj_P_Wilcox_s050 <- p.adjust(P_Wilconx_New_s050, method = "holm")
+data_p_adjust_Wilcox_s050 <- data.frame(p.value = Adj_P_Wilcox_s050)
+p18 <- ggplot(data_p_adjust_Wilcox_s050, aes(1:31,p.value)) + geom_point() + ylim(0,1) + 
+  geom_hline(yintercept = .05, colour = "red") + ylab("Adjusted P Value") + xlab("Time Variables") +
+  ggtitle("subject S050") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+
+P_Wilconx_New_s051 <- NULL
+for(i in 1:31) #only considering the time variables
+{
+P_Wilconx_New_s051[i] <- wilcox.test(as.formula(paste(colnames(Session8and7_s051)[i + 3],
+                                            " ~ sessionIndex")), 
+                           data = Session8and7_s051)$p.value
+}
+
+Adj_P_Wilcox_s051 <- p.adjust(P_Wilconx_New_s051, method = "holm")
+data_p_adjust_Wilcox_s051 <- data.frame(p.value = Adj_P_Wilcox_s051)
+p19 <- ggplot(data_p_adjust_Wilcox_s051, aes(1:31,p.value)) + geom_point() + ylim(0,1) + 
+  geom_hline(yintercept = .05, colour = "red") + ylab("Adjusted P Value") + xlab("Time Variables") +
+  ggtitle("subject S051") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+
+
+P_Wilconx_New_s052 <- NULL
+for(i in 1:31) #only considering the time variables
+{
+P_Wilconx_New_s052[i] <- wilcox.test(as.formula(paste(colnames(Session8and7_s052)[i + 3],
+                                            " ~ sessionIndex")), 
+                           data = Session8and7_s052)$p.value
+}
+
+Adj_P_Wilcox_s052 <- p.adjust(P_Wilconx_New_s052, method = "holm")
+data_p_adjust_Wilcox_s052 <- data.frame(p.value = Adj_P_Wilcox_s052)
+p20 <- ggplot(data_p_adjust_Wilcox_s052, aes(1:31,p.value)) + geom_point() + ylim(0,1) + 
+  geom_hline(yintercept = .05, colour = "red") + ylab("Adjusted P Value") + xlab("Time Variables") +
+  ggtitle("subject S052") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+P_Wilconx_New_s053 <- NULL
+for(i in 1:31) #only considering the time variables
+{
+P_Wilconx_New_s053[i] <- wilcox.test(as.formula(paste(colnames(Session8and7_s053)[i + 3],
+                                            " ~ sessionIndex")), 
+                           data = Session8and7_s053)$p.value
+}
+
+Adj_P_Wilcox_s053 <- p.adjust(P_Wilconx_New_s053, method = "holm")
+data_p_adjust_Wilcox_s053 <- data.frame(p.value = Adj_P_Wilcox_s053)
+p21 <- ggplot(data_p_adjust_Wilcox_s053, aes(1:31,p.value)) + geom_point() + ylim(0,1) + 
+  geom_hline(yintercept = .05, colour = "red") + ylab("Adjusted P Value") + xlab("Time Variables") +
+  ggtitle("subject S053") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+P_Wilconx_New_s056 <- NULL
+for(i in 1:31) #only considering the time variables
+{
+P_Wilconx_New_s056[i] <- wilcox.test(as.formula(paste(colnames(Session8and7_s056)[i + 3],
+                                            " ~ sessionIndex")), 
+                           data = Session8and7_s056)$p.value
+}
+
+Adj_P_Wilcox_s056 <- p.adjust(P_Wilconx_New_s056, method = "holm")
+data_p_adjust_Wilcox_s056 <- data.frame(p.value = Adj_P_Wilcox_s056)
+p22 <- ggplot(data_p_adjust_Wilcox_s056, aes(1:31,p.value)) + geom_point() + ylim(0,1) + 
+  geom_hline(yintercept = .05, colour = "red") + ylab("Adjusted P Value") + xlab("Time Variables") +
+  ggtitle("subject S056") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+
+grid.arrange(p1, p2, p3, p4,
+             p5, p6, p7, p8,
+             p9, p10, p11, p12,
+             p13, p14, p15, p16,
+             p17, p18, p19, p20,
+             p21, p22,
+             ncol = 4,
+             top = textGrob("Wilcoxon Plot for common Subjects in Sessions 7 and 8",gp=gpar(fontsize=20,font=3)))
+
+# 
+# Ses.8and7 <- Known[Known$subject %in% unique(Known$subject)[c(4:6, 8:9, 16:17, 19, 21, 23:24,
+#                                                           29, 31, 34, 37:38, 43:47)], ]
+# t(xtabs(~sessionIndex+subject, data=Ses.8and7))
+# 
+# Mann.Whitney <- Known[Known$subject %in% unique(Known$subject)[c(4:6, 8:9, 16:17, 19, 21, 23:24,
+#                                                           29, 31, 34, 37:38, 43:47)],-c(1,3)]
+# Mann.Whitney$sessionIndex <- factor(Mann.Whitney$sessionIndex)
+# 
+# 
+# P.Wilcox <- NULL
+# for(i in 1:31) #only rows with 7 & 8 values
+# {
+# P.Wilcox[i] <- wilcox.test(as.formula(paste(colnames(Mann.Whitney)[i + 1],
+#                                             " ~ sessionIndex")), 
+#                            data = Mann.Whitney)$p.value
+# }
+# #plot(P.Wilcox)
+# #not using bonferroni
+# Adj.P.Wilcox <- p.adjust(P.Wilcox, method = "bonferroni")
+# #plot(Adj.P.Wilcox, ylim = c(0,1)); abline(.05, 0, col = "red", lwd = 2)
+# 
+# data.Wilcox <- data.frame(p.value = Adj.P.Wilcox)
+# ggplot(data.Wilcox, aes(1:31,p.value)) + geom_point() + ylim(0,1) + 
+#   geom_hline(yintercept = .05, colour = "red") + ylab("Adjusted P Value") + xlab("Time Variables")
+```
+
+
+```{r Reading CSV}
+#Normalizing
+predictors <- Known[,c(4:34)]
+predictors <- predictors + 2
+predictors <- log2(predictors)
+Known <- cbind(Known[,c(1,2,3)], predictors)
+Known$subject <- as.factor(Known$subject)
+#summary(Known)
+
+  #8 pred 7
+Train.8 = Known[Known$sessionIndex==8,c(-2)] #removing SessionIndex only
+Test.7 = Known[Known$sessionIndex==7,c(-2)]
+
+  #50 50
+set.seed(5)
+split <- sample(seq_len(nrow(Known)), size = floor(.5 * nrow(Known)))
+Train.50 <- Known[split,]
+Test.50 <- Known[-split,]
+
+  #60 40
+set.seed(5)
+split <- sample(seq_len(nrow(Known)), size = floor(.6 * nrow(Known)))
+Train.60 <- Known[sort(split),]
+Test.40 <- Known[-split,]
+
+  #70 30
+set.seed(5)
+split <- sample(seq_len(nrow(Known)), size = floor(.7 * nrow(Known)))
+Train.70 <- Known[split,]
+Test.30 <- Known[-split,]
+```
+
+```{r RF 8 to 7}
+set.seed(702)
+K.RF <- randomForest((subject) ~ ., data = Train.8, control = list(maxit = 50))
+  #Obs
+K.RF.pred <- predict(K.RF, newdata = Test.7, type = "class" )
+mean(K.RF.pred == Test.7$subject)                     #0.8223
+  #Grouping
+pred.7.8=NULL
+for (i in unique(Test.7$subject)){
+  tst.i=new.data=Test.7[Test.7$subject==i,-1]
+  pred.7.8=rbind(pred.7.8,table(predict(K.RF, newdata=tst.i)))
+}; rownames(pred.7.8)=paste(unique(Test.7$subject))
+mean(as.character(unique(Test.7$subject))==colnames(pred.7.8)[apply(pred.7.8, 1, which.max)])      #.9091
+```
+
+```{r RF 50 50}
+set.seed(702)
+K.RF <- randomForest((subject) ~ ., data = Train.50, control = list(maxit = 50))
+  #Obs
+K.RF.pred <- predict(K.RF, newdata = Test.50, type = "class" )
+confusionMatrix((K.RF.pred), (Test.50$subject))$overall[1]   #0.9369
+  #Grouping
+pred.50.50=NULL
+for (i in unique(Test.50$subject)){
+  tst.i=new.data=Test.50[Test.50$subject==i,-1]
+  pred.50.50=rbind(pred.50.50,table(predict(K.RF, newdata=tst.i)))
+}; rownames(pred.50.50)=paste(unique(Test.50$subject))
+mean(unique(Test.50$subject)==colnames(pred.50.50)[apply(pred.50.50, 1, which.max)])      #1
+```
+
+```{r lda 60 40}
+set.seed(702)
+K.RF <- randomForest((subject) ~ ., data = Train.60, control = list(maxit = 50))
+  #Obs
+K.RF.pred <- predict(K.RF, newdata = Test.40, type = "class" )
+confusionMatrix((K.RF.pred), (Test.40$subject))$overall[1]   #0.9522
+  #Grouping
+pred.60.40=NULL
+for (i in unique(Test.40$subject)){
+  tst.i=new.data=Test.40[Test.40$subject==i,-1]
+  pred.60.40=rbind(pred.60.40,table(predict(K.RF, newdata=tst.i)))
+};rownames(pred.60.40)=paste(unique(Test.40$subject))
+mean(unique(Test.40$subject)==colnames(pred.60.40)[apply(pred.60.40, 1, which.max)])      #1
+```
+
+```{r lda 70 30}
+set.seed(5)
+K.RF <- randomForest((subject) ~ ., data = Train.70, control = list(maxit = 50))
+  #Obs
+K.RF.pred <- predict(K.RF, newdata = Test.30, type = "class" )
+confusionMatrix((K.RF.pred), (Test.30$subject))$overall[1]   #0.9681
+  #Grouping
+pred.70.30=NULL
+for (i in unique(Test.30$subject)){
+  tst.i=new.data=Test.30[Test.30$subject==i,-1]
+  pred.70.30=rbind(pred.70.30,table(predict(K.RF, newdata=tst.i)))
+}
+rownames(pred.70.30)=paste(unique(Test.30$subject))
+mean(unique(Test.30$subject)==colnames(pred.70.30)[apply(pred.70.30, 1, which.max)])      #.9804
+```
+
+
+#K-Fold CV
+```{R, CV Data, echo = F}
+####    Original and Transformations
+Predictors <- Known[,-c(1:3,seq(5, 32, 3))]           #Remove DD variables
+Predictors <- log2(Predictors + 2)
+
+known.CV <- cbind(Known[,c(1:3)], Predictors)
+
+```
+
+
+```{r,LDA}
+library(caret)
+library(MASS)
+
+##############################################################################
+  #5FoldCV
+set.seed(5)
+Folds <- createFolds(known.CV$subject, k = 5, list = T)
+cv.K.Error <- rep(0,5)
+i <- 1
+for(i in 1:5){
+  
+  CV.Data.Train <- known.CV[-Folds[[i]], ]
+  CV.Data.Test <- known.CV[Folds[[i]], ]
+  
+  Model <- lda(subject ~ ., data = CV.Data.Train, prior = rep(1/51, 51))
+  Pred <- predict(Model, newdata = CV.Data.Test)$class
+  
+  cv.K.Error[i] <- confusionMatrix(Pred , CV.Data.Test$subject)$overall[1] 
+}
+
+LDA.5CV <- round(mean(cv.K.Error), 4)
+LDA.5CV
+
+```
+
+```{r,RF}
+library(randomForest)
+
+##############################################################################
+  #5FoldCV
+set.seed(5)
+Folds <- createFolds(known.CV$subject, k = 5, list = T)
+cv.K.Error <- rep(0,5)
+i <- 1
+for(i in 1:5){
+  
+  CV.Data.Train <- known.CV[-Folds[[i]], ]
+  CV.Data.Test <- known.CV[Folds[[i]], ]
+  
+  Model <- randomForest((subject) ~ ., data = CV.Data.Train, control = list(maxit = 50))
+  Pred <- predict(Model, newdata = CV.Data.Test, type = "class")
+  
+  cv.K.Error[i] <- confusionMatrix(Pred , CV.Data.Test$subject)$overall[1] 
+}
+
+RF.5CV <- round(mean(cv.K.Error), 4)
+RF.5CV
+```
+
+
+```{r,Bagging}
+
+##############################################################################
+  #5FoldCV
+set.seed(5)
+Folds <- createFolds(known.CV$subject, k = 5, list = T)
+cv.K.Error <- rep(0,5)
+i <- 1
+for(i in 1:5){
+  
+  CV.Data.Train <- known.CV[-Folds[[i]], ]
+  CV.Data.Test <- known.CV[Folds[[i]], ]
+
+    Model <- randomForest((subject) ~ ., data = CV.Data.Train, 
+                          mtry = 23, control = list(maxit = 50))
+  Pred <- predict(Model, newdata = CV.Data.Test, type = "class")
+  
+  cv.K.Error[i] <- confusionMatrix(Pred , CV.Data.Test$subject)$overall[1] 
+}
+
+Bag.5CV <- round(mean(cv.K.Error), 4)
+Bag.5CV
+```
+
+
+```{r,SVM Radial}
+library(e1071)
+
+##############################################################################
+  #5FoldCV
+set.seed(5)
+Folds <- createFolds(known.CV$subject, k = 5, list = T)
+cv.K.Error <- rep(0,5)
+i <- 1
+for(i in 1:5){
+  
+  CV.Data.Train <- known.CV[-Folds[[i]], ]
+  CV.Data.Test <- known.CV[Folds[[i]], ]
+
+  svm_tune<-tune(svm,factor(subject)~.,data = CV.Data.Train,kernel="radial",
+               ranges = list(cost=c(0.01,0.1,1,5,10)),
+               gamma=c(0.1,0.5,1,2,5))
+  #summary(svm_tune)
+  svm_best_model <- svm_tune$best.model
+
+  set.seed(702)
+  Model<-svm(factor(subject)~.,data = CV.Data.Train, kernel="radial",
+                cost=svm_best_model$cost, gamma = svm_best_model$gamma)
+  Pred<-predict(Model,newdata = CV.Data.Test, type = "class")
+  
+  cv.K.Error[i] <- confusionMatrix(Pred , CV.Data.Test$subject)$overall[1] 
+}
+
+Rad.5CV <- round(mean(cv.K.Error), 4)
+Rad.5CV
+```
+
+
+```{r,SVM Poly}
+library(e1071)
+
+##############################################################################
+  #5FoldCV
+set.seed(5)
+Folds <- createFolds(known.CV$subject, k = 5, list = T)
+cv.K.Error <- rep(0,5)
+i <- 1
+for(i in 1:5){
+  
+  CV.Data.Train <- known.CV[-Folds[[i]], ]
+  CV.Data.Test <- known.CV[Folds[[i]], ]
+
+  svm_tune<-tune(svm,factor(subject)~.,data = CV.Data.Train,kernel="polynomial",
+               ranges = list(cost=c(0.01,0.1,1,5,10)),
+               degree=c(2,3,4,5))
+  summary(svm_tune)
+  svm_best_model <- svm_tune$best.model
+
+  set.seed(702)
+  Model<-svm(factor(subject)~.,data = CV.Data.Train, kernel="polynomial",
+                cost=svm_best_model$cost, degree = svm_best_model$degree)
+  Pred<-predict(Model,newdata = CV.Data.Test, type = "class")
+  
+  cv.K.Error[i] <- confusionMatrix(Pred , CV.Data.Test$subject)$overall[1] 
+}
+
+Poly.5CV <- round(mean(cv.K.Error), 4)
+Poly.5CV
+```
+
+
+```{r,SVM Linear}
+library(e1071)
+
+##############################################################################
+  #5FoldCV
+set.seed(5)
+Folds <- createFolds(known.CV$subject, k = 5, list = T)
+cv.K.Error <- rep(0,5)
+i <- 1
+for(i in 1:5){
+  
+  CV.Data.Train <- known.CV[-Folds[[i]], ]
+  CV.Data.Test <- known.CV[Folds[[i]], ]
+
+  svm_tune<-tune(svm,factor(subject)~.,data = CV.Data.Train,kernel="linear",
+               ranges = list(cost=c(0.01,0.1,1,5,10)))
+  summary(svm_tune)
+  svm_best_model <- svm_tune$best.model
+
+  set.seed(702)
+  Model<-svm(factor(subject)~.,data = CV.Data.Train, kernel="linear",
+                cost=svm_best_model$cost)
+  Pred<-predict(Model,newdata = CV.Data.Test, type = "class")
+  
+  cv.K.Error[i] <- confusionMatrix(Pred , CV.Data.Test$subject)$overall[1] 
+}
+
+Lin.5CV <- round(mean(cv.K.Error), 4)
+Lin.5CV
+```
+
+
+```{r, Mclust 1}
+library(mclust)
+
+##############################################################################
+  #5FoldCV
+set.seed(5)
+Folds <- createFolds(known.CV$subject, k = 5, list = T)
+cv.K.Error <- rep(0,5)
+i <- 1
+for(i in 1:5){
+  
+  CV.Data.Train <- known.CV[-Folds[[i]], ]
+  CV.Data.Test <- known.CV[Folds[[i]], ]
+  
+  Model<-MclustDA(CV.Data.Train[,2:24], CV.Data.Train[,1], G = 1)
+  Pred<-predict.MclustDA(Model, newdata = CV.Data.Test[,-1])$classification
+  
+  cv.K.Error[i] <- confusionMatrix(Pred , CV.Data.Test$subject)$overall[1] 
+}
+
+Mclust1.5CV <- round(mean(cv.K.Error), 4)
+Mclust1.5CV
+```
+
+
+```{r, Mclust EDDA}
+library(mclust)
+
+##############################################################################
+  #5FoldCV
+set.seed(5)
+Folds <- createFolds(known.CV$subject, k = 5, list = T)
+cv.K.Error <- rep(0,5)
+i <- 1
+for(i in 1:5){
+  
+  CV.Data.Train <- known.CV[-Folds[[i]], ]
+  CV.Data.Test <- known.CV[Folds[[i]], ]
+  
+  Model<-MclustDA(CV.Data.Train[,2:24], CV.Data.Train[,1], G = 1, modelType = "EDDA")
+  Pred<-predict.MclustDA(Model, newdata = CV.Data.Test[,-1])$classification
+  
+  cv.K.Error[i] <- confusionMatrix(Pred , CV.Data.Test$subject)$overall[1] 
+}
+
+EDDA.5CV <- round(mean(cv.K.Error), 4)
+EDDA.5CV
+```
+

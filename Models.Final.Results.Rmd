@@ -1,0 +1,1600 @@
+---
+title: "Models.Final.Results"
+author: "Monica, Dheeman, Quinn"
+date: "4/27/2018"
+output: html_document
+---
+
+
+```{R, Data & Libraries, echo = F, warnings = F, errors = F, messages = F}
+library(dplyr)
+library(MASS)
+library(caret)
+library(randomForest)
+library(gbm)
+library(e1071)
+library(class)
+library(mclust)
+
+#Known =read.csv("~/Desktop/702.Final/Final Project 702/known.csv")[,-1]
+#Known <- read.csv("D:/Users/Quinn Fargen/Desktop/Final Code 702/known.csv")[,-1]
+Known = read.csv("/Users/DheemanSaha/Dropbox/Data_Science/STAT-702/Final_Exam/known.csv")[,-1]
+Known <- as.data.frame(Known)
+
+
+#Unknown =read.csv("~/Desktop/702.Final/Final Project 702/unknown.csv")[,-1]
+#Unknown <- read.csv("D:/Users/Quinn Fargen/Desktop/Final Code 702/unknown.csv")[,-1]
+Unknown = read.csv("/Users/DheemanSaha/Dropbox/Data_Science/STAT-702/Final_Exam/unknown.csv")[,-1]
+Unknown <- as.data.frame(Unknown)
+
+
+#############################
+#       Data Subsets                ### With UD and DD
+#############################
+
+####    Original and Transformations
+Predictors <- Known[,c(4:34)]
+Predictors <- log2(Predictors + 2)
+
+Known.Trans <- cbind(Known[,c(1:3)], Predictors)
+
+  #60 40
+set.seed(5)
+split <- sample(seq_len(nrow(Known.Trans)), size = floor(.6 * nrow(Known.Trans)))
+O.Train <- Known.Trans[sort(split),]
+O.Test <- Known.Trans[-split,]
+
+
+#### Mutated Variables without H
+Mutated <- Known.Trans
+Mutated <- mutate(Mutated, leftpointer = (H.Shift.r + H.t + H.five))
+Mutated <- mutate(Mutated, rightring = (H.i + H.o + H.l + H.period))
+Mutated <- mutate(Mutated, lefthand = (H.Shift.r + H.t + H.five + H.a))     # removed H.e
+Mutated <- mutate(Mutated, righthand = (H.i + H.o + H.l + H.n + H.Return + H.period))
+Mutated <- mutate(Mutated, total = (H.period + DD.period.t + UD.period.t + H.t + DD.t.i + UD.t.i + H.i + 
+                                  DD.i.e + UD.i.e  + H.five + DD.five.Shift.r + UD.five.Shift.r + 
+                                  H.Shift.r + DD.Shift.r.o + UD.Shift.r.o + H.o + DD.o.a + H.a + DD.a.n + 
+                                  UD.a.n + H.n + DD.n.l + UD.n.l + H.l + DD.l.Return + 
+                                  UD.l.Return + H.Return))    # Removed H.e + DD.e.five + UD.e.five + UD.o.a 
+Mutated <- Mutated[,-c(seq(4, 34, 3))] #Removing H Variables
+
+  #60 40
+set.seed(5)
+split <- sample(seq_len(nrow(Mutated)), size = floor(.6 * nrow(Mutated)))
+M.Train <- Mutated[sort(split),]
+M.Test <- Mutated[-split,]
+
+#############################################################
+#### New Known stepwise
+#New.Known.Step <- Known.Trans[,-c(11:12, 16, 21:22, 25)] #Removing (DD.i.e, UD.i.e, H.five, UD.Shift.r.o, H.o, H.a)
+
+New.Known.Step <- Known.Trans[,c("subject", "sessionIndex", "H.period", "UD.period.t",
+                                   "H.t", "DD.t.i", "UD.t.i", "UD.i.e", "H.five",
+                                   "DD.Shift.r.o", "UD.Shift.r.o", "H.o", 
+                                   "H.a", "H.n", "DD.n.l", "UD.n.l", "DD.l.Return",
+                                   "UD.l.Return")]
+
+
+  #60 40
+set.seed(5)
+split <- sample(seq_len(nrow(New.Known.Step)), size = floor(.6 * nrow(New.Known.Step)))
+K.Train.New <- New.Known.Step[sort(split),]
+K.Test.New <- New.Known.Step[-split,]
+
+#### New Unknown Stepwise Selection
+New.Unknown.Step <- Known.Trans[,c(1,3:4, 8:9, 12, 20,22,24:25,29,31:33)]
+
+  #60 40
+set.seed(5)
+split <- sample(seq_len(nrow(New.Unknown.Step)), size = floor(.6 * nrow(New.Unknown.Step)))
+U.Train.New <- New.Unknown.Step[sort(split),]
+U.Test.New <- New.Unknown.Step[-split,]
+
+#################################
+#### PCA
+PCA.Known <- prcomp(Known.Trans[,-1], scale=FALSE)
+PCA.Subject <- Known.Trans$subject
+PCA.Session <- Known.Trans$sessionIndex
+PCA.Data <- as.data.frame(PCA.Known$x)
+PCA.Known <- as.data.frame(cbind(subject = as.character(PCA.Subject), 
+                                 sessionIndex = (PCA.Session),
+                                 PCA.Data))
+
+  #60 40
+set.seed(5)
+split <- sample(seq_len(nrow(PCA.Known)), size = floor(.6 *nrow(PCA.Known)))
+P.Train <- PCA.Known[sort(split),]
+P.Test <- PCA.Known[-split,]
+```
+
+
+
+```{R, Data Without DD, echo = F, warnings = F, errors = F, messages = F}
+#############################
+#       Data Subsets                ### With Only UD
+#############################
+
+####    Original and Transformations
+Predictors <- Known[,-c(1:3,seq(5, 32, 3))]           #Remove DD variables
+Predictors <- log2(Predictors + 2)
+
+Known.Trans.UD <- cbind(Known[,c(1:3)], Predictors)
+
+  #60 40
+set.seed(5)
+split <- sample(seq_len(nrow(Known.Trans.UD)), size = floor(.6 * nrow(Known.Trans.UD)))
+O.Train.UD <- Known.Trans.UD[sort(split),]
+O.Test.UD <- Known.Trans.UD[-split,]
+
+#### Mutated Variables without
+Mutated <- Known.Trans.UD
+Mutated <- mutate(Mutated, leftpointer = (H.Shift.r + H.t + H.five))
+Mutated <- mutate(Mutated, rightring = (H.i + H.o + H.l + H.period))
+Mutated <- mutate(Mutated, lefthand = (H.Shift.r + H.t + H.five + H.a))     # removed H.e
+Mutated <- mutate(Mutated, righthand = (H.i + H.o + H.l + H.n + H.Return + H.period))
+Mutated <- mutate(Mutated, total = (H.period + UD.period.t + H.t + UD.t.i + H.i + 
+                                  UD.i.e  + H.five + UD.five.Shift.r + 
+                                  H.Shift.r + UD.Shift.r.o + H.o + H.a + 
+                                  UD.a.n + H.n + UD.n.l + H.l + UD.l.Return + H.Return))    
+                                  # Removed H.e + DD.e.five + UD.e.five + UD.o.a 
+Mutated.UD <- Mutated[,-c(seq(4, 24, 2))] #Removing H Variables
+
+  #60 40
+set.seed(5)
+split <- sample(seq_len(nrow(Mutated.UD)), size = floor(.6 * nrow(Mutated.UD)))
+M.Train.UD <- Mutated.UD[sort(split),]
+M.Test.UD <- Mutated.UD[-split,]
+
+##############################################################
+####New Known Stepwise with only UD
+New.Known.Step.UD <- Known.Trans[,-c(5, 8, 11:12,14, 16:17, 20:23, 25:26, 29, 32)] #Removing (DD.i.e, UD.i.e, H.five, UD.Shift.r.o, H.o, H.a)
+
+  #60 40
+set.seed(5)
+split <- sample(seq_len(nrow(New.Known.Step.UD)), size = floor(.6 * nrow(New.Known.Step.UD)))
+K.Train.New.UD <- New.Known.Step.UD[sort(split),]
+K.Test.New.UD <- New.Known.Step.UD[-split,]
+
+#### New Unknown Stepwise Selection with only UD
+New.Unknown.Step.UD <- Known.Trans[,c(1,3:4, 9,12, 22,24:25,31,33)] #Removing DD's
+
+  #60 40
+set.seed(5)
+split <- sample(seq_len(nrow(New.Unknown.Step.UD)), size = floor(.6 * nrow(New.Unknown.Step.UD)))
+U.Train.New.UD <- New.Unknown.Step.UD[sort(split),]
+U.Test.New.UD <- New.Unknown.Step.UD[-split,]
+
+#################################
+#### PCA
+PCA.Known.UD <- prcomp(Known.Trans[,-c(1, seq(5,32,3))], scale=FALSE)
+PCA.Subject.UD <- Known.Trans$subject
+PCA.Session <- Known.Trans$sessionIndex
+PCA.Data.UD <- as.data.frame(PCA.Known.UD$x)
+PCA.Known.UD <- as.data.frame(cbind(subject = as.character(PCA.Subject), 
+                                 sessionIndex = (PCA.Session),
+                                 PCA.Data))
+
+  #60 40
+set.seed(5)
+split <- sample(seq_len(nrow(PCA.Known.UD)), size = floor(.6 *nrow(PCA.Known.UD)))
+P.Train.UD <- PCA.Known.UD[sort(split),]
+P.Test.UD <- PCA.Known.UD[-split,]
+
+#### PCA
+PCA.Known <- prcomp(Known.Trans[,-1], scale=FALSE)
+PCA.Subject <- Known.Trans$subject
+PCA.Session <- Known.Trans$sessionIndex
+PCA.Data <- as.data.frame(PCA.Known$x)
+PCA.Known <- as.data.frame(cbind(subject = as.character(PCA.Subject), 
+                                 sessionIndex = (PCA.Session),
+                                 PCA.Data))
+
+  #60 40
+set.seed(5)
+split <- sample(seq_len(nrow(PCA.Known)), size = floor(.6 *nrow(PCA.Known)))
+P.Train <- PCA.Known[sort(split),]
+P.Test <- PCA.Known[-split,]
+```
+
+```{R, QDA PCA, echo = F}
+PCA.QDA <- qda(subject ~ ., data = P.Train[,c(1,3:7)]);  pred.Orig=NULL
+for (i in unique(P.Test$subject)){
+  tst.i = new.data = P.Test[P.Test$subject==i,-1]
+  pred.Orig = rbind(pred.Orig, table(predict(PCA.QDA, newdata=tst.i)$class))
+}#; rownames(pred.Orig) = paste(unique(P.Test$subject))
+  #Grouping                                                                           # 1
+mean(unique(P.Test$subject) == colnames(pred.Orig)[apply(pred.Orig, 1, which.max)])
+  #Obs Error
+Obs.pred.O <- predict(PCA.QDA, P.Test)$class
+confusionMatrix(Obs.pred.O , P.Test$subject)$overall[1]                               #.8734
+
+```
+
+```{R, LDA UD & DD, echo = F, warnings = F, errors = F, messages = F}
+#########################################
+# Original
+set.seed(5)
+LDA.Orig = lda(subject~., data=O.Train, prior =rep(1/51, 51));  pred.Orig=NULL
+
+for (i in unique(O.Test$subject)){
+  tst.i = new.data = O.Test[O.Test$subject==i,-1]
+  pred.Orig = rbind(pred.Orig, table(predict(LDA.Orig, newdata=tst.i)$class))
+}; rownames(pred.Orig) = paste(unique(O.Test$subject))
+  #Grouping                                                                           # 1
+mean(unique(O.Test$subject) == colnames(pred.Orig)[apply(pred.Orig, 1, which.max)])
+  #Obs Error
+Obs.pred.O <- predict(LDA.Orig, O.Test)$class
+confusionMatrix(Obs.pred.O , O.Test$subject)$overall[1]                               #.8734
+
+#########################################
+# Mutated
+
+LDA.Mut = lda(subject~., data=M.Train, prior =rep(1/51, 51));  pred.Mut=NULL
+
+for (i in unique(M.Test$subject)){
+  tst.i = new.data = M.Test[M.Test$subject==i,-1]
+  pred.Mut = rbind(pred.Mut, table(predict(LDA.Mut, newdata=tst.i)$class))
+}; rownames(pred.Mut)=paste(unique(M.Test$subject))
+  #Grouping                                                                           # 1
+mean(unique(M.Test$subject) == colnames(pred.Mut)[apply(pred.Mut, 1, which.max)])
+  #Obs Error
+Obs.pred.M <- predict(LDA.Mut, M.Test)$class
+confusionMatrix(Obs.pred.M , M.Test$subject)$overall[1]                               #.8636
+
+#########################################
+# Variables Known Stepwise Selection       NEW
+
+LDA.Known = lda(subject~., data=K.Train.New, prior =rep(1/51, 51));  pred.Known=NULL
+
+for (i in unique(K.Test.New$subject)){
+  tst.i = new.data = K.Test.New[K.Test.New$subject==i,-1]
+  pred.Known = rbind(pred.Known, table(predict(LDA.Known, newdata=tst.i)$class))
+}; rownames(pred.Known)=paste(unique(K.Test.New$subject))
+  #Grouping                                                                               # 1
+mean(unique(K.Test.New$subject) == colnames(pred.Known)[apply(pred.Known, 1, which.max)])
+  #Obs Error
+Obs.pred.K <- predict(LDA.Known, K.Test.New)$class
+confusionMatrix(Obs.pred.K , K.Test.New$subject)$overall[1]                               #.8678
+
+#########################################
+# Variables Unknown Stepwise Selection                NEW
+
+LDA.Unknown = lda(subject~., data=U.Train.New, prior =rep(1/51, 51));  pred.Unknown=NULL
+
+for (i in unique(U.Test.New$subject)){
+  tst.i = new.data = U.Test.New[U.Test.New$subject==i,-1]
+  pred.Unknown = rbind(pred.Unknown, table(predict(LDA.Unknown, newdata=tst.i)$class))
+}; rownames(pred.Unknown)=paste(unique(U.Test.New$subject))
+  #Grouping                                                                                   #.9804
+mean(unique(U.Test.New$subject) == colnames(pred.Unknown)[apply(pred.Unknown, 1, which.max)])
+  #Obs Error
+Obs.pred.U <- predict(LDA.Unknown, U.Test.New)$class
+confusionMatrix(Obs.pred.U , U.Test.New$subject)$overall[1]                                   #0.7075
+
+#########################################
+# PCA                                            NEW
+LDA.Unknown = lda(subject~., data=P.Train, prior =rep(1/51, 51));  pred.Unknown=NULL
+
+for (i in unique(P.Test$subject)){
+  tst.i = new.data = P.Test[P.Test$subject==i,-1]
+  pred.Unknown = rbind(pred.Unknown, table(predict(LDA.Unknown, newdata=tst.i)$class))
+}; rownames(pred.Unknown)=paste(unique(P.Test$subject))
+  #Grouping                                                                                   #1
+mean(unique(P.Test$subject) == colnames(pred.Unknown)[apply(pred.Unknown, 1, which.max)])
+  #Obs Error
+Obs.pred.U <- predict(LDA.Unknown, P.Test)$class
+confusionMatrix(Obs.pred.U , P.Test$subject)$overall[1]                                   #0.8734
+```
+
+
+
+```{R, LDA UD, echo = F, warnings = F, errors = F, messages = F}
+#########################################
+# Original only UD
+set.seed(5)
+LDA.Orig = lda(subject~., data=O.Train.UD, prior =rep(1/51, 51));  pred.Orig=NULL
+
+for (i in unique(O.Test.UD$subject)){
+  tst.i = new.data = O.Test.UD[O.Test.UD$subject==i,-1]
+  pred.Orig = rbind(pred.Orig, table(predict(LDA.Orig, newdata=tst.i)$class))
+}; rownames(pred.Orig) = paste(unique(O.Test.UD$subject))
+  #Grouping                                                                               # 1
+mean(unique(O.Test.UD$subject) == colnames(pred.Orig)[apply(pred.Orig, 1, which.max)])
+  #Obs Error
+Obs.pred.O <- predict(LDA.Orig, O.Test.UD)$class
+confusionMatrix(Obs.pred.O , O.Test.UD$subject)$overall[1]                               #.8734
+
+#########################################
+# Mutated only UD
+
+LDA.Mut = lda(subject~., data=M.Train.UD, prior =rep(1/51, 51));  pred.Mut=NULL
+
+for (i in unique(M.Test.UD$subject)){
+  tst.i = new.data = M.Test.UD[M.Test.UD$subject==i,-1]
+  pred.Mut = rbind(pred.Mut, table(predict(LDA.Mut, newdata=tst.i)$class))
+}; rownames(pred.Mut)=paste(unique(M.Test.UD$subject))
+  #Grouping                                                                           #.9804 
+mean(unique(M.Test.UD$subject) == colnames(pred.Mut)[apply(pred.Mut, 1, which.max)])
+  #Obs Error
+Obs.pred.M <- predict(LDA.Mut, M.Test.UD)$class
+confusionMatrix(Obs.pred.M , M.Test.UD$subject)$overall[1]                            #.7595
+
+#########################################           NEW
+# Variables Known Stepwise Selection only UD
+
+LDA.Known = lda(subject~., data=K.Train.New.UD, prior =rep(1/51, 51));  pred.Known=NULL
+
+for (i in unique(K.Test.New.UD$subject)){
+  tst.i = new.data = K.Test.New.UD[K.Test.New.UD$subject==i,-1]
+  pred.Known = rbind(pred.Known, table(predict(LDA.Known, newdata=tst.i)$class))
+}; rownames(pred.Known)=paste(unique(K.Test.New.UD$subject))
+  #Grouping                                                                           # 1
+mean(unique(K.Test.New.UD$subject) == colnames(pred.Known)[apply(pred.Known, 1, which.max)])
+  #Obs Error
+Obs.pred.K <- predict(LDA.Known, K.Test.New.UD)$class
+confusionMatrix(Obs.pred.K , K.Test.New.UD$subject)$overall[1]                               #0.8397
+
+#########################################
+# Variables Unknown Stepwise Selection only UD
+
+LDA.Unknown = lda(subject~., data=U.Train.New.UD, prior =rep(1/51, 51));  pred.Unknown=NULL
+
+for (i in unique(U.Test.New.UD$subject)){
+  tst.i = new.data = U.Test.New.UD[U.Test.New.UD$subject==i,-1]
+  pred.Unknown = rbind(pred.Unknown, table(predict(LDA.Unknown, newdata=tst.i)$class))
+}; rownames(pred.Unknown)=paste(unique(U.Test.New.UD$subject))
+  #Grouping                                                                                       #0.8823529
+mean(unique(U.Test.New.UD$subject) == colnames(pred.Unknown)[apply(pred.Unknown, 1, which.max)])
+  #Obs Error
+Obs.pred.U <- predict(LDA.Unknown, U.Test.New.UD)$class
+confusionMatrix(Obs.pred.U , U.Test.New.UD$subject)$overall[1]                                    #0.5780591
+
+#########################################
+# PCA                       
+LDA.Unknown = lda(subject~., data=P.Train.UD, prior =rep(1/51, 51));  pred.Unknown=NULL
+
+for (i in unique(P.Test.UD$subject)){
+  tst.i = new.data = P.Test.UD[P.Test.UD$subject==i,-1]
+  pred.Unknown = rbind(pred.Unknown, table(predict(LDA.Unknown, newdata=tst.i)$class))
+}; rownames(pred.Unknown)=paste(unique(P.Test.UD$subject))
+  #Grouping                                                                                       #1
+mean(unique(P.Test.UD$subject) == colnames(pred.Unknown)[apply(pred.Unknown, 1, which.max)])
+  #Obs Error
+Obs.pred.U <- predict(LDA.Unknown, P.Test.UD)$class
+confusionMatrix(Obs.pred.U , P.Test.UD$subject)$overall[1]                                    #0.8734
+```
+
+
+
+```{R, RF both UD and DD, echo = F, warnings = F, errors = F, messages = F}
+#########################################
+# Original
+set.seed(702)
+K.RF <- randomForest((subject) ~ ., data = O.Train, control = list(maxit = 50))
+  #Grouping
+pred.RF=NULL
+for (i in unique(O.Test$subject)){
+  tst.i=new.data=O.Test[O.Test$subject==i,-1]
+  pred.RF=rbind(pred.RF, table(predict(K.RF, newdata=tst.i)))
+}; rownames(pred.RF)=paste(unique(O.Test$subject))
+mean(unique(O.Test$subject) == colnames(pred.RF)[apply(pred.RF, 1, which.max)])   #1
+  #Obs
+K.RF.pred <- predict(K.RF, newdata = O.Test, type = "class" )
+confusionMatrix((K.RF.pred), (O.Test$subject))$overall[1]                         #.9521
+
+#########################################
+# Mutated
+set.seed(702)
+K.RF <- randomForest((subject) ~ ., data = M.Train, control = list(maxit = 50))
+  #Grouping
+pred.RF=NULL
+for (i in unique(M.Test$subject)){
+  tst.i=new.data=M.Test[M.Test$subject==i,-1]
+  pred.RF=rbind(pred.RF, table(predict(K.RF, newdata=tst.i)))
+}; rownames(pred.RF)=paste(unique(M.Test$subject))
+mean(unique(M.Test$subject) == colnames(pred.RF)[apply(pred.RF, 1, which.max)])   #1
+  #Obs
+K.RF.pred <- predict(K.RF, newdata = M.Test, type = "class" )
+confusionMatrix((K.RF.pred), (M.Test$subject))$overall[1]                         #.9058
+
+#########################################             NEW
+# Variables Known Stepwise Selection
+set.seed(702)
+K.RF <- randomForest((subject) ~ ., data = K.Train.New, control = list(maxit = 50))
+  #Grouping
+pred.RF=NULL
+for (i in unique(K.Test.New$subject)){
+  tst.i=new.data=K.Test.New[K.Test.New$subject==i,-1]
+  pred.RF=rbind(pred.RF, table(predict(K.RF, newdata=tst.i)))
+}; rownames(pred.RF)=paste(unique(K.Test.New$subject))
+mean(unique(K.Test.New$subject) == colnames(pred.RF)[apply(pred.RF, 1, which.max)])   #1
+  #Obs
+K.RF.pred <- predict(K.RF, newdata = K.Test.New, type = "class" )
+confusionMatrix((K.RF.pred), (K.Test.New$subject))$overall[1]                         #0.9367
+
+#########################################                   NEW
+# Variables Unknown Stepwise Selection
+set.seed(702)
+K.RF <- randomForest((subject) ~ ., data = U.Train.New, control = list(maxit = 50))
+  #Grouping
+pred.RF=NULL
+for (i in unique(U.Test.New$subject)){
+  tst.i=new.data=U.Test.New[U.Test.New$subject==i,-1]
+  pred.RF=rbind(pred.RF, table(predict(K.RF, newdata=tst.i)))
+}; rownames(pred.RF)=paste(unique(U.Test.New$subject))
+mean(unique(U.Test.New$subject) == colnames(pred.RF)[apply(pred.RF, 1, which.max)])   #0.9804
+  #Obs
+K.RF.pred <- predict(K.RF, newdata = U.Test.New, type = "class" )
+confusionMatrix((K.RF.pred), (U.Test.New$subject))$overall[1]                         #0.8298
+
+#########################################                   NEW
+# PCA
+set.seed(702)
+K.RF <- randomForest((subject) ~ ., data = P.Train, control = list(maxit = 50))
+  #Grouping
+pred.RF=NULL
+for (i in unique(P.Test$subject)){
+  tst.i=new.data=P.Test[P.Test$subject==i,-1]
+  pred.RF=rbind(pred.RF, table(predict(K.RF, newdata=tst.i)))
+}; rownames(pred.RF)=paste(unique(P.Test$subject))
+mean(unique(P.Test$subject) == colnames(pred.RF)[apply(pred.RF, 1, which.max)])   #1
+  #Obs
+K.RF.pred <- predict(K.RF, newdata = P.Test, type = "class" )
+confusionMatrix((K.RF.pred), (P.Test$subject))$overall[1]                         #0.8509
+```
+
+```{R, RF only UD, echo = F, warnings = F, errors = F, messages = F}
+#########################################
+# Original only UD
+set.seed(702)
+K.RF <- randomForest((subject) ~ ., data = O.Train.UD, control = list(maxit = 50))
+  #Grouping
+pred.RF=NULL
+for (i in unique(O.Test.UD$subject)){
+  tst.i=new.data=O.Test.UD[O.Test.UD$subject==i,-1]
+  pred.RF=rbind(pred.RF, table(predict(K.RF, newdata=tst.i)))
+}; rownames(pred.RF)=paste(unique(O.Test.UD$subject))
+mean(unique(O.Test.UD$subject) == colnames(pred.RF)[apply(pred.RF, 1, which.max)])   #1
+  #Obs
+K.RF.pred <- predict(K.RF, newdata = O.Test.UD, type = "class" )
+confusionMatrix((K.RF.pred), (O.Test.UD$subject))$overall[1]                         #0.9479
+
+#########################################
+# Mutated only UD
+set.seed(702)
+K.RF <- randomForest((subject) ~ ., data = M.Train.UD, control = list(maxit = 50))
+  #Grouping
+pred.RF=NULL
+for (i in unique(M.Test.UD$subject)){
+  tst.i=new.data=M.Test.UD[M.Test.UD$subject==i,-1]
+  pred.RF=rbind(pred.RF, table(predict(K.RF, newdata=tst.i)))
+}; rownames(pred.RF)=paste(unique(M.Test.UD$subject))
+mean(unique(M.Test.UD$subject) == colnames(pred.RF)[apply(pred.RF, 1, which.max)])   #1
+  #Obs
+K.RF.pred <- predict(K.RF, newdata = M.Test.UD, type = "class" )
+confusionMatrix((K.RF.pred), (M.Test.UD$subject))$overall[1]                         #.8917
+
+#########################################         NEW
+# Variables Known Stepwise Selection only UD
+set.seed(702)
+K.RF <- randomForest((subject) ~ ., data = K.Train.New.UD, control = list(maxit = 50))
+  #Grouping
+pred.RF=NULL
+for (i in unique(K.Test.New.UD$subject)){
+  tst.i=new.data=K.Test.New.UD[K.Test.New.UD$subject==i,-1]
+  pred.RF=rbind(pred.RF, table(predict(K.RF, newdata=tst.i)))
+}; rownames(pred.RF)=paste(unique(K.Test.New.UD$subject))
+mean(unique(K.Test.New.UD$subject) == colnames(pred.RF)[apply(pred.RF, 1, which.max)])   #1
+  #Obs
+K.RF.pred <- predict(K.RF, newdata = K.Test.New.UD, type = "class" )
+confusionMatrix((K.RF.pred), (K.Test.New.UD$subject))$overall[1]                         #0.9325
+
+#########################################                   NEW
+# Variables Unknown Stepwise Selection only UD
+set.seed(702)
+K.RF <- randomForest((subject) ~ ., data = U.Train.New.UD, control = list(maxit = 50))
+  #Grouping
+pred.RF=NULL
+for (i in unique(U.Test.New.UD$subject)){
+  tst.i=new.data=U.Test.New.UD[U.Test.New.UD$subject==i,-1]
+  pred.RF=rbind(pred.RF, table(predict(K.RF, newdata=tst.i)))
+}; rownames(pred.RF)=paste(unique(U.Test.New.UD$subject))
+mean(unique(U.Test.New.UD$subject) == colnames(pred.RF)[apply(pred.RF, 1, which.max)])   #0.9216
+  #Obs
+K.RF.pred <- predict(K.RF, newdata = U.Test.New.UD, type = "class" )
+confusionMatrix((K.RF.pred), (U.Test.New.UD$subject))$overall[1]                         #0.7271
+
+#########################################                   NEW - ISSUE
+# PCA UD
+set.seed(702)
+K.RF <- randomForest((subject) ~ ., data = P.Train.UD, control = list(maxit = 50))
+  #Grouping
+pred.RF=NULL
+for (i in unique(P.Test.UD$subject)){
+  tst.i=new.data=P.Test.UD[P.Test.UD$subject==i,-1]
+  pred.RF=rbind(pred.RF, table(predict(K.RF, newdata=tst.i)))
+}; rownames(pred.RF)=paste(unique(P.Test.UD$subject))
+mean(unique(P.Test.UD$subject) == colnames(pred.RF)[apply(pred.RF, 1, which.max)])   #1
+  #Obs
+K.RF.pred <- predict(K.RF, newdata = P.Test.UD, type = "class" )
+confusionMatrix((K.RF.pred), (P.Test.UD$subject))$overall[1]                         #0.8509
+```
+
+```{R, Bagging with UD and DD, echo = F, warnings = F, errors = F, messages = F}
+#########################################
+# Original
+set.seed(702)
+K.Bag <- randomForest(subject ~ ., data = O.Train, mtry = 33, control = list(maxit = 50))
+  #Grouping
+pred.Bag=NULL
+for (i in unique(O.Test$subject)){
+  tst.i=new.data=O.Test[O.Test$subject==i,-1]
+  pred.Bag=rbind(pred.Bag, table(predict(K.Bag, newdata=tst.i)))
+}; rownames(pred.Bag)=paste(unique(O.Test$subject))
+mean(unique(O.Test$subject) == colnames(pred.Bag)[apply(pred.Bag, 1, which.max)])        #1
+  #Obs
+K.Bag.pred <- predict(K.Bag, newdata = O.Test, type = "class" )
+confusionMatrix(K.Bag.pred, O.Test$subject)$overall[1]                                   #.8959
+
+#########################################
+# Mutated
+set.seed(702)
+K.Bag <- randomForest(subject ~ ., data = M.Train, mtry = 27, control = list(maxit = 50))
+  #Grouping
+pred.Bag=NULL
+for (i in unique(M.Test$subject)){
+  tst.i=new.data=M.Test[M.Test$subject==i,-1]
+  pred.Bag=rbind(pred.Bag, table(predict(K.Bag, newdata=tst.i)))
+}; rownames(pred.Bag)=paste(unique(M.Test$subject))
+mean(unique(M.Test$subject) == colnames(pred.Bag)[apply(pred.Bag, 1, which.max)])        #1
+  #Obs
+K.Bag.pred <- predict(K.Bag, newdata = M.Test, type = "class" )
+confusionMatrix(K.Bag.pred, M.Test$subject)$overall[1]                                   #.8509
+
+#########################################           NEW
+# Variables Known Stepwise Selection
+set.seed(702)
+K.Bag <- randomForest(subject ~ ., data = K.Train.New, mtry = 27, control = list(maxit = 50))
+  #Grouping
+pred.Bag=NULL
+for (i in unique(K.Test.New$subject)){
+  tst.i=new.data=K.Test.New[K.Test.New$subject==i,-1]
+  pred.Bag=rbind(pred.Bag, table(predict(K.Bag, newdata=tst.i)))
+}; rownames(pred.Bag)=paste(unique(K.Test.New$subject))
+mean(unique(K.Test.New$subject) == colnames(pred.Bag)[apply(pred.Bag, 1, which.max)])        #1
+  #Obs
+K.Bag.pred <- predict(K.Bag, newdata = K.Test.New, type = "class" )
+confusionMatrix(K.Bag.pred, K.Test.New$subject)$overall[1]                                   #0.8833
+
+#########################################                 NEW
+# Variables Unknown Stepwise Selection
+set.seed(702)
+K.Bag <- randomForest(subject ~ ., data = U.Train.New, mtry = 13, control = list(maxit = 50))
+  #Grouping
+pred.Bag=NULL
+for (i in unique(U.Test.New$subject)){
+  tst.i=new.data=U.Test.New[U.Test.New$subject==i,-1]
+  pred.Bag=rbind(pred.Bag, table(predict(K.Bag, newdata=tst.i)))
+}; rownames(pred.Bag)=paste(unique(U.Test.New$subject))
+mean(unique(U.Test.New$subject) == colnames(pred.Bag)[apply(pred.Bag, 1, which.max)])        #0.9608
+  #Obs
+K.Bag.pred <- predict(K.Bag, newdata = U.Test.New, type = "class" )
+confusionMatrix(K.Bag.pred, U.Test.New$subject)$overall[1]                                   #0.7904
+
+#########################################                 NEW
+# PCA
+set.seed(702)
+K.Bag <- randomForest(subject ~ ., data = P.Train, mtry = 33, control = list(maxit = 50))
+  #Grouping
+pred.Bag=NULL
+for (i in unique(P.Test$subject)){
+  tst.i=new.data=P.Test[P.Test$subject==i,-1]
+  pred.Bag=rbind(pred.Bag, table(predict(K.Bag, newdata=tst.i)))
+}; rownames(pred.Bag)=paste(unique(P.Test$subject))
+mean(unique(P.Test$subject) == colnames(pred.Bag)[apply(pred.Bag, 1, which.max)])        #1
+  #Obs
+K.Bag.pred <- predict(K.Bag, newdata = P.Test, type = "class" )
+confusionMatrix(K.Bag.pred, P.Test$subject)$overall[1]                                   #0.7834
+```
+
+
+```{R, Bagging only UD, echo = F, warnings = F, errors = F, messages = F}
+#########################################
+# Original only UD
+set.seed(702)
+K.Bag <- randomForest(subject ~ ., data = O.Train.UD, mtry = 23, control = list(maxit = 50))
+  #Grouping
+pred.Bag=NULL
+for (i in unique(O.Test.UD$subject)){
+  tst.i=new.data=O.Test.UD[O.Test.UD$subject==i,-1]
+  pred.Bag=rbind(pred.Bag, table(predict(K.Bag, newdata=tst.i)))
+}; rownames(pred.Bag)=paste(unique(O.Test.UD$subject))
+mean(unique(O.Test.UD$subject) == colnames(pred.Bag)[apply(pred.Bag, 1, which.max)])        #1
+  #Obs
+K.Bag.pred <- predict(K.Bag, newdata = O.Test.UD, type = "class" )
+confusionMatrix(K.Bag.pred, O.Test.UD$subject)$overall[1]                                   #.8833
+
+#########################################
+# Mutated only UD
+set.seed(702)
+K.Bag <- randomForest(subject ~ ., data = M.Train.UD, mtry = 17, control = list(maxit = 50))
+  #Grouping
+pred.Bag=NULL
+for (i in unique(M.Test.UD$subject)){
+  tst.i=new.data=M.Test.UD[M.Test.UD$subject==i,-1]
+  pred.Bag=rbind(pred.Bag, table(predict(K.Bag, newdata=tst.i)))
+}; rownames(pred.Bag)=paste(unique(M.Test.UD$subject))
+mean(unique(M.Test.UD$subject) == colnames(pred.Bag)[apply(pred.Bag, 1, which.max)])        #.9608
+  #Obs
+K.Bag.pred <- predict(K.Bag, newdata = M.Test.UD, type = "class" )
+confusionMatrix(K.Bag.pred, M.Test.UD$subject)$overall[1]                                   #.8354
+
+#########################################           NEW
+# Variables Known Stepwise Selection only UD
+set.seed(702) 
+K.Bag <- randomForest(subject ~ ., data = K.Train.New.UD, mtry = 18, control = list(maxit = 50))
+  #Grouping
+pred.Bag=NULL
+for (i in unique(K.Test.New.UD$subject)){
+  tst.i=new.data=K.Test.New.UD[K.Test.New.UD$subject==i,-1]
+  pred.Bag=rbind(pred.Bag, table(predict(K.Bag, newdata=tst.i)))
+}; rownames(pred.Bag)=paste(unique(K.Test.New.UD$subject))
+mean(unique(K.Test.New.UD$subject) == colnames(pred.Bag)[apply(pred.Bag, 1, which.max)])        #1
+  #Obs
+K.Bag.pred <- predict(K.Bag, newdata = K.Test.New.UD, type = "class" )
+confusionMatrix(K.Bag.pred, K.Test.New.UD$subject)$overall[1]                                   #0.8664
+
+#########################################                   NEW
+# Variables Unknown Stepwise Selection only UD
+set.seed(702)
+K.Bag <- randomForest(subject ~ ., data = U.Train.New.UD, mtry = 9, control = list(maxit = 50))
+  #Grouping
+pred.Bag=NULL
+for (i in unique(U.Test.New.UD$subject)){
+  tst.i=new.data=U.Test.New.UD[U.Test.New.UD$subject==i,-1]
+  pred.Bag=rbind(pred.Bag, table(predict(K.Bag, newdata=tst.i)))
+}; rownames(pred.Bag)=paste(unique(U.Test.New.UD$subject))
+mean(unique(U.Test.New.UD$subject) == colnames(pred.Bag)[apply(pred.Bag, 1, which.max)])        #0.9019
+  #Obs
+K.Bag.pred <- predict(K.Bag, newdata = U.Test.New.UD, type = "class" )
+confusionMatrix(K.Bag.pred, U.Test.New.UD$subject)$overall[1]                                   #0.7089
+
+#########################################                   NEW
+# PCA
+set.seed(702)
+K.Bag <- randomForest(subject ~ ., data = P.Train.UD, mtry = 9, control = list(maxit = 50))
+  #Grouping
+pred.Bag=NULL
+for (i in unique(P.Test.UD$subject)){
+  tst.i=new.data=P.Test.UD[P.Test.UD$subject==i,-1]
+  pred.Bag=rbind(pred.Bag, table(predict(K.Bag, newdata=tst.i)))
+}; rownames(pred.Bag)=paste(unique(P.Test.UD$subject))
+mean(unique(P.Test.UD$subject) == colnames(pred.Bag)[apply(pred.Bag, 1, which.max)])        #1
+  #Obs
+K.Bag.pred <- predict(K.Bag, newdata = P.Test.UD, type = "class" )
+confusionMatrix(K.Bag.pred, P.Test.UD$subject)$overall[1]                                   #0.8354
+```
+
+#Skipping boosting rn
+
+
+
+```{R, SVM radial both UD and DD, echo = F, warnings = F, errors = F, messages = F}
+#########################################
+# Original
+set.seed(702)
+svm_tune<-tune(svm,factor(subject)~.,data = O.Train,kernel="radial",
+               ranges = list(cost=c(0.01,0.1,1,5,10)),
+               gamma=c(0.1,0.5,1,2,5));    svm_best_model <- svm_tune$best.model
+set.seed(702)
+svm_model1<-svm(factor(subject)~.,data = O.Train, kernel="radial",
+                cost=svm_best_model$cost, gamma = svm_best_model$gamma)
+svm_pred1<-predict(svm_model1,newdata = O.Test, type = "class")
+  #Grouping
+pred.SVM=NULL
+for (i in unique(O.Test$subject)){
+  tst.i=new.data=O.Test[O.Test$subject==i,-1]
+  pred.SVM=rbind(pred.SVM, table(predict(svm_model1, newdata=tst.i, type = "class")))
+}; rownames(pred.SVM)=paste(unique(O.Test$subject))
+mean(unique(O.Test$subject) == colnames(pred.SVM)[apply(pred.SVM, 1, which.max)])           #1
+  #Obs
+confusionMatrix(svm_pred1, as.factor(O.Test$subject))$overall[1]                            #.8214
+
+#########################################
+# Mutated
+set.seed(702)
+svm_tune<-tune(svm,factor(subject)~.,data = M.Train,kernel="radial",
+               ranges = list(cost=c(0.01,0.1,1,5,10)),
+               gamma=c(0.1,0.5,1,2,5));    svm_best_model <- svm_tune$best.model
+set.seed(702)
+svm_model1<-svm(factor(subject)~.,data = M.Train, kernel="radial",
+                cost=svm_best_model$cost, gamma = svm_best_model$gamma)
+svm_pred1<-predict(svm_model1,newdata = M.Test, type = "class")
+  #Grouping
+pred.SVM=NULL
+for (i in unique(M.Test$subject)){
+  tst.i=new.data=M.Test[M.Test$subject==i,-1]
+  pred.SVM=rbind(pred.SVM, table(predict(svm_model1, newdata=tst.i, type = "class")))
+}; rownames(pred.SVM)=paste(unique(M.Test$subject))
+mean(unique(M.Test$subject) == colnames(pred.SVM)[apply(pred.SVM, 1, which.max)])           #1
+  #Obs
+confusionMatrix(svm_pred1, as.factor(M.Test$subject))$overall[1]                            #.7820
+
+#########################################           NEW
+# Variables Known Stepwise Selection
+set.seed(702)
+svm_tune<-tune(svm,factor(subject)~.,data = K.Train.New,kernel="radial",
+               ranges = list(cost=c(0.01,0.1,1,5,10)),
+               gamma=c(0.1,0.5,1,2,5));    svm_best_model <- svm_tune$best.model
+set.seed(702)
+svm_model1<-svm(factor(subject)~.,data = K.Train.New, kernel="radial",
+                cost=svm_best_model$cost, gamma = svm_best_model$gamma)
+svm_pred1<-predict(svm_model1,newdata = K.Test.New, type = "class")
+  #Grouping
+pred.SVM=NULL
+for (i in unique(K.Test.New$subject)){
+  tst.i=new.data=K.Test.New[K.Test.New$subject==i,-1]
+  pred.SVM=rbind(pred.SVM, table(predict(svm_model1, newdata=tst.i, type = "class")))
+}; rownames(pred.SVM)=paste(unique(K.Test.New$subject))
+mean(unique(K.Test.New$subject) == colnames(pred.SVM)[apply(pred.SVM, 1, which.max)])           #1
+  #Obs
+confusionMatrix(svm_pred1, as.factor(K.Test.New$subject))$overall[1]                            #0.8186
+
+#########################################
+# Variables Unknown Stepwise Selection
+set.seed(702)
+svm_tune<-tune(svm,factor(subject)~.,data = U.Train.New,kernel="radial",
+               ranges = list(cost=c(0.01,0.1,1,5,10)),
+               gamma=c(0.1,0.5,1,2,5));    svm_best_model <- svm_tune$best.model
+set.seed(702)
+svm_model1<-svm(factor(subject)~.,data = U.Train.New, kernel="radial",
+                cost=svm_best_model$cost, gamma = svm_best_model$gamma)
+svm_pred1<-predict(svm_model1,newdata = U.Test.New, type = "class")
+  #Grouping
+pred.SVM=NULL
+for (i in unique(U.Test.New$subject)){
+  tst.i=new.data=U.Test.New[U.Test.New$subject==i,-1]
+  pred.SVM=rbind(pred.SVM, table(predict(svm_model1, newdata=tst.i, type = "class")))
+}; rownames(pred.SVM)=paste(unique(U.Test.New$subject))
+mean(unique(U.Test.New$subject) == colnames(pred.SVM)[apply(pred.SVM, 1, which.max)])           #0.9608
+  #Obs
+confusionMatrix(svm_pred1, as.factor(U.Test.New$subject))$overall[1]                            #0.7314
+
+#########################################
+# PCA
+set.seed(702)
+svm_tune<-tune(svm,factor(subject)~.,data = P.Train,kernel="radial",
+               ranges = list(cost=c(0.01,0.1,1,5,10)),
+               gamma=c(0.1,0.5,1,2,5));    svm_best_model <- svm_tune$best.model
+set.seed(702)
+svm_model1<-svm(factor(subject)~.,data = P.Train, kernel="radial",
+                cost=svm_best_model$cost, gamma = svm_best_model$gamma)
+svm_pred1<-predict(svm_model1,newdata = P.Test, type = "class")
+  #Grouping
+pred.SVM=NULL
+for (i in unique(P.Test$subject)){
+  tst.i=new.data=P.Test[P.Test$subject==i,-1]
+  pred.SVM=rbind(pred.SVM, table(predict(svm_model1, newdata=tst.i, type = "class")))
+}; rownames(pred.SVM)=paste(unique(P.Test$subject))
+mean(unique(P.Test$subject) == colnames(pred.SVM)[apply(pred.SVM, 1, which.max)])           #0.9019
+  #Obs
+confusionMatrix(svm_pred1, as.factor(P.Test$subject))$overall[1]                            #0.7271
+```
+
+```{R, SVM polynomial both UD and DD, echo = F, warnings = F, errors = F, messages = F}
+#########################################
+# Original
+set.seed(702)
+svm_tune<-tune(svm,factor(subject)~.,data = O.Train,kernel="polynomial",
+               ranges = list(cost=c(0.01,0.1,1,5,10)),
+               degree=c(2, 3, 4, 5));    svm_best_model <- svm_tune$best.model
+set.seed(702)
+svm_model1<-svm(factor(subject)~.,data = O.Train, kernel="polynomial",
+                cost=svm_best_model$cost, degree = svm_best_model$degree)
+svm_pred1<-predict(svm_model1,newdata = O.Test, type = "class")
+  #Grouping
+pred.SVM=NULL
+for (i in unique(O.Test$subject)){
+  tst.i=new.data=O.Test[O.Test$subject==i,-1]
+  pred.SVM=rbind(pred.SVM, table(predict(svm_model1, newdata=tst.i, type = "class")))
+}; rownames(pred.SVM)=paste(unique(O.Test$subject))
+mean(unique(O.Test$subject) == colnames(pred.SVM)[apply(pred.SVM, 1, which.max)])           #1
+  #Obs
+confusionMatrix(svm_pred1, as.factor(O.Test$subject))$overall[1]                            #.8340
+
+#########################################
+# Mutated
+set.seed(702)
+svm_tune<-tune(svm,factor(subject)~.,data = M.Train,kernel="polynomial",
+               ranges = list(cost=c(0.01,0.1,1,5,10)),
+               degree=c(2, 3, 4, 5));    svm_best_model <- svm_tune$best.model
+set.seed(702)
+svm_model1<-svm(factor(subject)~.,data = M.Train, kernel="polynomial",
+                cost=svm_best_model$cost, degree = svm_best_model$degree)
+svm_pred1<-predict(svm_model1,newdata = M.Test, type = "class")
+  #Grouping
+pred.SVM=NULL
+for (i in unique(M.Test$subject)){
+  tst.i=new.data=M.Test[M.Test$subject==i,-1]
+  pred.SVM=rbind(pred.SVM, table(predict(svm_model1, newdata=tst.i, type = "class")))
+}; rownames(pred.SVM)=paste(unique(M.Test$subject))
+mean(unique(M.Test$subject) == colnames(pred.SVM)[apply(pred.SVM, 1, which.max)])           #1
+  #Obs
+confusionMatrix(svm_pred1, as.factor(M.Test$subject))$overall[1]                            #.7384
+
+#########################################    NEW
+# Variables Known Stepwise Selection
+set.seed(702)
+svm_tune<-tune(svm,factor(subject)~.,data = K.Train.New,kernel="polynomial",
+               ranges = list(cost=c(0.01,0.1,1,5,10)),
+               degree=c(2, 3, 4, 5));    svm_best_model <- svm_tune$best.model
+set.seed(702)
+svm_model1<-svm(factor(subject)~.,data = K.Train.New, kernel="polynomial",
+                cost=svm_best_model$cost, degree = svm_best_model$degree)
+svm_pred1<-predict(svm_model1,newdata = K.Test.New, type = "class")
+  #Grouping
+pred.SVM=NULL
+for (i in unique(K.Test.New$subject)){
+  tst.i=new.data=K.Test.New[K.Test.New$subject==i,-1]
+  pred.SVM=rbind(pred.SVM, table(predict(svm_model1, newdata=tst.i, type = "class")))
+}; rownames(pred.SVM)=paste(unique(K.Test.New$subject))
+mean(unique(K.Test.New$subject) == colnames(pred.SVM)[apply(pred.SVM, 1, which.max)])           #.9804
+  #Obs
+confusionMatrix(svm_pred1, as.factor(K.Test.New$subject))$overall[1]                            #0.8045
+
+#########################################                   NEW
+# Variables Unknown Stepwise Selection
+set.seed(702)
+svm_tune<-tune(svm,factor(subject)~.,data = U.Train.New,kernel="polynomial",
+               ranges = list(cost=c(0.01,0.1,1,5,10)),
+               degree=c(2, 3, 4, 5));    svm_best_model <- svm_tune$best.model
+set.seed(702)
+svm_model1<-svm(factor(subject)~.,data = U.Train.New, kernel="polynomial",
+                cost=svm_best_model$cost, degree = svm_best_model$degree)
+svm_pred1<-predict(svm_model1,newdata = U.Test.New, type = "class")
+  #Grouping
+pred.SVM=NULL
+for (i in unique(U.Test.New$subject)){
+  tst.i=new.data=U.Test.New[U.Test.New$subject==i,-1]
+  pred.SVM=rbind(pred.SVM, table(predict(svm_model1, newdata=tst.i, type = "class")))
+}; rownames(pred.SVM)=paste(unique(U.Test.New$subject))
+mean(unique(U.Test.New$subject) == colnames(pred.SVM)[apply(pred.SVM, 1, which.max)])           #0.9412
+  #Obs
+confusionMatrix(svm_pred1, as.factor(U.Test.New$subject))$overall[1]                            #0.6174
+
+#########################################                   NEW
+# Variables Unknown Stepwise Selection
+set.seed(702)
+svm_tune<-tune(svm,factor(subject)~.,data = P.Train,kernel="polynomial",
+               ranges = list(cost=c(0.01,0.1,1,5,10)),
+               degree=c(2, 3, 4, 5));    svm_best_model <- svm_tune$best.model
+set.seed(702)
+svm_model1<-svm(factor(subject)~.,data = P.Train, kernel="polynomial",
+                cost=svm_best_model$cost, degree = svm_best_model$degree)
+svm_pred1<-predict(svm_model1,newdata = P.Test, type = "class")
+  #Grouping
+pred.SVM=NULL
+for (i in unique(P.Test$subject)){
+  tst.i=new.data=P.Test[P.Test$subject==i,-1]
+  pred.SVM=rbind(pred.SVM, table(predict(svm_model1, newdata=tst.i, type = "class")))
+}; rownames(pred.SVM)=paste(unique(P.Test$subject))
+mean(unique(P.Test$subject) == colnames(pred.SVM)[apply(pred.SVM, 1, which.max)])           #0.9804
+  #Obs
+confusionMatrix(svm_pred1, as.factor(P.Test$subject))$overall[1]                            #0.8017
+```
+
+```{R, SVM linear both UD and DD, echo = F, warnings = F, errors = F, messages = F}
+#########################################
+# Original
+set.seed(702)
+svm_tune<-tune(svm,factor(subject)~.,data = O.Train,kernel="linear",
+               ranges = list(cost=c(0.01,0.1,1,5,10)));    svm_best_model <- svm_tune$best.model
+set.seed(702)
+svm_model1<-svm(factor(subject)~.,data = O.Train, kernel="linear",
+                cost=svm_best_model$cost)
+svm_pred1<-predict(svm_model1,newdata = O.Test, type = "class")
+  #Grouping
+pred.SVM=NULL
+for (i in unique(O.Test$subject)){
+  tst.i=new.data=O.Test[O.Test$subject==i,-1]
+  pred.SVM=rbind(pred.SVM, table(predict(svm_model1, newdata=tst.i, type = "class")))
+}; rownames(pred.SVM)=paste(unique(O.Test$subject))
+mean(unique(O.Test$subject) == colnames(pred.SVM)[apply(pred.SVM, 1, which.max)])           #1
+  #Obs
+confusionMatrix(svm_pred1, as.factor(O.Test$subject))$overall[1]                            #.8748
+
+#########################################
+# Mutated
+set.seed(702)
+svm_tune<-tune(svm,factor(subject)~.,data = M.Train,kernel="linear",
+               ranges = list(cost=c(0.01,0.1,1,5,10)));    svm_best_model <- svm_tune$best.model
+set.seed(702)
+svm_model1<-svm(factor(subject)~.,data = M.Train, kernel="linear",
+                cost=svm_best_model$cost)
+svm_pred1<-predict(svm_model1,newdata = M.Test, type = "class")
+  #Grouping
+pred.SVM=NULL
+for (i in unique(M.Test$subject)){
+  tst.i=new.data=M.Test[M.Test$subject==i,-1]
+  pred.SVM=rbind(pred.SVM, table(predict(svm_model1, newdata=tst.i, type = "class")))
+}; rownames(pred.SVM)=paste(unique(M.Test$subject))
+mean(unique(M.Test$subject) == colnames(pred.SVM)[apply(pred.SVM, 1, which.max)])           #1
+  #Obs
+confusionMatrix(svm_pred1, as.factor(M.Test$subject))$overall[1]                            #.8017
+
+#########################################             NEW
+# Variables Known Stepwise Selection
+set.seed(702)
+svm_tune<-tune(svm,factor(subject)~.,data = K.Train.New,kernel="linear",
+               ranges = list(cost=c(0.01,0.1,1,5,10)));    svm_best_model <- svm_tune$best.model
+set.seed(702)
+svm_model1<-svm(factor(subject)~.,data = K.Train.New, kernel="linear",
+                cost=svm_best_model$cost)
+svm_pred1<-predict(svm_model1,newdata = K.Test.New, type = "class")
+  #Grouping
+pred.SVM=NULL
+for (i in unique(K.Test.New$subject)){
+  tst.i=new.data=K.Test.New[K.Test.New$subject==i,-1]
+  pred.SVM=rbind(pred.SVM, table(predict(svm_model1, newdata=tst.i, type = "class")))
+}; rownames(pred.SVM)=paste(unique(K.Test.New$subject))
+mean(unique(K.Test.New$subject) == colnames(pred.SVM)[apply(pred.SVM, 1, which.max)])           #1
+  #Obs
+confusionMatrix(svm_pred1, as.factor(K.Test.New$subject))$overall[1]                            #0.8481
+
+#########################################                 NEW
+# Variables Unknown Stepwise Selection
+set.seed(702)
+svm_tune<-tune(svm,factor(subject)~.,data = U.Train.New,kernel="linear",
+               ranges = list(cost=c(0.01,0.1,1,5,10)));    svm_best_model <- svm_tune$best.model
+set.seed(702)
+svm_model1<-svm(factor(subject)~.,data = U.Train.New, kernel="linear",
+                cost=svm_best_model$cost)
+svm_pred1<-predict(svm_model1,newdata = U.Test.New, type = "class")
+  #Grouping
+pred.SVM=NULL
+for (i in unique(U.Test.New$subject)){
+  tst.i=new.data=U.Test.New[U.Test.New$subject==i,-1]
+  pred.SVM=rbind(pred.SVM, table(predict(svm_model1, newdata=tst.i, type = "class")))
+}; rownames(pred.SVM)=paste(unique(U.Test.New$subject))
+mean(unique(U.Test.New$subject) == colnames(pred.SVM)[apply(pred.SVM, 1, which.max)])           #0.9608
+  #Obs
+confusionMatrix(svm_pred1, as.factor(U.Test.New$subject))$overall[1]                            #0.6976
+
+#########################################                 NEW
+# PCA
+set.seed(702)
+svm_tune<-tune(svm,factor(subject)~.,data = P.Train,kernel="linear",
+               ranges = list(cost=c(0.01,0.1,1,5,10)));    svm_best_model <- svm_tune$best.model
+set.seed(702)
+svm_model1<-svm(factor(subject)~.,data = P.Train, kernel="linear",
+                cost=svm_best_model$cost)
+svm_pred1<-predict(svm_model1,newdata = P.Test, type = "class")
+  #Grouping
+pred.SVM=NULL
+for (i in unique(P.Test$subject)){
+  tst.i=new.data=P.Test[P.Test$subject==i,-1]
+  pred.SVM=rbind(pred.SVM, table(predict(svm_model1, newdata=tst.i, type = "class")))
+}; rownames(pred.SVM)=paste(unique(P.Test$subject))
+mean(unique(P.Test$subject) == colnames(pred.SVM)[apply(pred.SVM, 1, which.max)])           #1
+  #Obs
+confusionMatrix(svm_pred1, as.factor(P.Test$subject))$overall[1]                            #0.8523
+```
+
+#SVM only UD
+
+```{R, SVM radial only UD, echo = F, warnings = F, errors = F, messages = F}
+#########################################
+# Original only UD
+set.seed(702)
+svm_tune<-tune(svm,factor(subject)~.,data = O.Train.UD,kernel="radial",
+               ranges = list(cost=c(0.01,0.1,1,5,10)),
+               gamma=c(0.1,0.5,1,2,5));    svm_best_model <- svm_tune$best.model
+set.seed(702)
+svm_model1<-svm(factor(subject)~.,data = O.Train.UD, kernel="radial",
+                cost=svm_best_model$cost, gamma = svm_best_model$gamma)
+svm_pred1<-predict(svm_model1,newdata = O.Test.UD, type = "class")
+  #Grouping
+pred.SVM=NULL
+for (i in unique(O.Test.UD$subject)){
+  tst.i=new.data=O.Test.UD[O.Test.UD$subject==i,-1]
+  pred.SVM=rbind(pred.SVM, table(predict(svm_model1, newdata=tst.i, type = "class")))
+}; rownames(pred.SVM)=paste(unique(O.Test.UD$subject))
+mean(unique(O.Test.UD$subject) == colnames(pred.SVM)[apply(pred.SVM, 1, which.max)])           #1
+  #Obs
+confusionMatrix(svm_pred1, as.factor(O.Test.UD$subject))$overall[1]                            #.8594
+
+#########################################
+# Mutated only UD
+set.seed(702)
+svm_tune<-tune(svm,factor(subject)~.,data = M.Train.UD,kernel="radial",
+               ranges = list(cost=c(0.01,0.1,1,5,10)),
+               gamma=c(0.1,0.5,1,2,5));    svm_best_model <- svm_tune$best.model
+set.seed(702)
+svm_model1<-svm(factor(subject)~.,data = M.Train.UD, kernel="radial",
+                cost=svm_best_model$cost, gamma = svm_best_model$gamma)
+svm_pred1<-predict(svm_model1,newdata = M.Test.UD, type = "class")
+  #Grouping
+pred.SVM=NULL
+for (i in unique(M.Test.UD$subject)){
+  tst.i=new.data=M.Test.UD[M.Test.UD$subject==i,-1]
+  pred.SVM=rbind(pred.SVM, table(predict(svm_model1, newdata=tst.i, type = "class")))
+}; rownames(pred.SVM)=paste(unique(M.Test.UD$subject))
+mean(unique(M.Test.UD$subject) == colnames(pred.SVM)[apply(pred.SVM, 1, which.max)])           #1
+  #Obs
+confusionMatrix(svm_pred1, as.factor(M.Test.UD$subject))$overall[1]                            #.7876
+
+#########################################               NEW
+# Variables Known Stepwise Selection only UD
+set.seed(702)
+svm_tune<-tune(svm,factor(subject)~.,data = K.Train.New.UD,kernel="radial",
+               ranges = list(cost=c(0.01,0.1,1,5,10)),
+               gamma=c(0.1,0.5,1,2,5));    svm_best_model <- svm_tune$best.model
+set.seed(702)
+svm_model1<-svm(factor(subject)~.,data = K.Train.New.UD, kernel="radial",
+                cost=svm_best_model$cost, gamma = svm_best_model$gamma)
+svm_pred1<-predict(svm_model1,newdata = K.Test.New.UD, type = "class")
+  #Grouping
+pred.SVM=NULL
+for (i in unique(K.Test.New.UD$subject)){
+  tst.i=new.data=K.Test.New.UD[K.Test.New.UD$subject==i,-1]
+  pred.SVM=rbind(pred.SVM, table(predict(svm_model1, newdata=tst.i, type = "class")))
+}; rownames(pred.SVM)=paste(unique(K.Test.New.UD$subject))
+mean(unique(K.Test.New.UD$subject) == colnames(pred.SVM)[apply(pred.SVM, 1, which.max)])           #1
+  #Obs
+confusionMatrix(svm_pred1, as.factor(K.Test.New.UD$subject))$overall[1]                            #0.8425
+
+#########################################           NEW
+# Variables Unknown Stepwise Selection only UD
+set.seed(702)
+svm_tune<-tune(svm,factor(subject)~.,data = U.Train.New.UD,kernel="radial",
+               ranges = list(cost=c(0.01,0.1,1,5,10)),
+               gamma=c(0.1,0.5,1,2,5));    svm_best_model <- svm_tune$best.model
+set.seed(702)
+svm_model1<-svm(factor(subject)~.,data = U.Train.New.UD, kernel="radial",
+                cost=svm_best_model$cost, gamma = svm_best_model$gamma)
+svm_pred1<-predict(svm_model1,newdata = U.Test.New.UD, type = "class")
+  #Grouping
+pred.SVM=NULL
+for (i in unique(U.Test.New.UD$subject)){
+  tst.i=new.data=U.Test.New.UD[U.Test.New.UD$subject==i,-1]
+  pred.SVM=rbind(pred.SVM, table(predict(svm_model1, newdata=tst.i, type = "class")))
+}; rownames(pred.SVM)=paste(unique(U.Test.New.UD$subject))
+mean(unique(U.Test.New.UD$subject) == colnames(pred.SVM)[apply(pred.SVM, 1, which.max)])           #0.9412
+  #Obs
+confusionMatrix(svm_pred1, as.factor(U.Test.New.UD$subject))$overall[1]                            #0.6948
+
+#########################################           NEW
+# PCA
+set.seed(702)
+svm_tune<-tune(svm,factor(subject)~.,data = P.Train.UD,kernel="radial",
+               ranges = list(cost=c(0.01,0.1,1,5,10)),
+               gamma=c(0.1,0.5,1,2,5));    svm_best_model <- svm_tune$best.model
+set.seed(702)
+svm_model1<-svm(factor(subject)~.,data = P.Train.UD, kernel="radial",
+                cost=svm_best_model$cost, gamma = svm_best_model$gamma)
+svm_pred1<-predict(svm_model1,newdata = P.Test.UD, type = "class")
+  #Grouping
+pred.SVM=NULL
+for (i in unique(P.Test.UD$subject)){
+  tst.i=new.data=P.Test.UD[P.Test.UD$subject==i,-1]
+  pred.SVM=rbind(pred.SVM, table(predict(svm_model1, newdata=tst.i, type = "class")))
+}; rownames(pred.SVM)=paste(unique(P.Test.UD$subject))
+mean(unique(P.Test.UD$subject) == colnames(pred.SVM)[apply(pred.SVM, 1, which.max)])           #1
+  #Obs
+confusionMatrix(svm_pred1, as.factor(P.Test.UD$subject))$overall[1]                            #0.7834
+```
+
+```{R, SVM polynomial only UD, echo = F, warnings = F, errors = F, messages = F}
+#########################################
+# Original only UD
+set.seed(702)
+svm_tune<-tune(svm,factor(subject)~.,data = O.Train.UD,kernel="polynomial",
+               ranges = list(cost=c(0.01,0.1,1,5,10)),
+               degree=c(2, 3, 4, 5));    svm_best_model <- svm_tune$best.model
+set.seed(702)
+svm_model1<-svm(factor(subject)~.,data = O.Train.UD, kernel="polynomial",
+                cost=svm_best_model$cost, degree = svm_best_model$degree)
+svm_pred1<-predict(svm_model1,newdata = O.Test.UD, type = "class")
+  #Grouping
+pred.SVM=NULL
+for (i in unique(O.Test.UD$subject)){
+  tst.i=new.data=O.Test.UD[O.Test.UD$subject==i,-1]
+  pred.SVM=rbind(pred.SVM, table(predict(svm_model1, newdata=tst.i, type = "class")))
+}; rownames(pred.SVM)=paste(unique(O.Test.UD$subject))
+mean(unique(O.Test.UD$subject) == colnames(pred.SVM)[apply(pred.SVM, 1, which.max)])           #1
+  #Obs
+confusionMatrix(svm_pred1, as.factor(O.Test.UD$subject))$overall[1]                            #.8425
+
+#########################################
+# Mutated only UD
+set.seed(702)
+svm_tune<-tune(svm,factor(subject)~.,data = M.Train.UD,kernel="polynomial",
+               ranges = list(cost=c(0.01,0.1,1,5,10)),
+               degree=c(2, 3, 4, 5));    svm_best_model <- svm_tune$best.model
+set.seed(702)
+svm_model1<-svm(factor(subject)~.,data = M.Train.UD, kernel="polynomial",
+                cost=svm_best_model$cost, degree = svm_best_model$degree)
+svm_pred1<-predict(svm_model1,newdata = M.Test.UD, type = "class")
+  #Grouping
+pred.SVM=NULL
+for (i in unique(M.Test.UD$subject)){
+  tst.i=new.data=M.Test.UD[M.Test.UD$subject==i,-1]
+  pred.SVM=rbind(pred.SVM, table(predict(svm_model1, newdata=tst.i, type = "class")))
+}; rownames(pred.SVM)=paste(unique(M.Test.UD$subject))
+mean(unique(M.Test.UD$subject) == colnames(pred.SVM)[apply(pred.SVM, 1, which.max)])           #.9608
+  #Obs
+confusionMatrix(svm_pred1, as.factor(M.Test.UD$subject))$overall[1]                            #.7426
+
+#########################################                 NEW
+# Variables Known Stepwise Selection only UD
+set.seed(702)
+svm_tune<-tune(svm,factor(subject)~.,data = K.Train.New.UD,kernel="polynomial",
+               ranges = list(cost=c(0.01,0.1,1,5,10)),
+               degree=c(2, 3, 4, 5));    svm_best_model <- svm_tune$best.model
+set.seed(702)
+svm_model1<-svm(factor(subject)~.,data = K.Train.New.UD, kernel="polynomial",
+                cost=svm_best_model$cost, degree = svm_best_model$degree)
+svm_pred1<-predict(svm_model1,newdata = K.Test.New.UD, type = "class")
+  #Grouping
+pred.SVM=NULL
+for (i in unique(K.Test.New.UD$subject)){
+  tst.i=new.data=K.Test.New.UD[K.Test.New.UD$subject==i,-1]
+  pred.SVM=rbind(pred.SVM, table(predict(svm_model1, newdata=tst.i, type = "class")))
+}; rownames(pred.SVM)=paste(unique(K.Test.New.UD$subject))
+mean(unique(K.Test.New.UD$subject) == colnames(pred.SVM)[apply(pred.SVM, 1, which.max)])           #.9804
+  #Obs
+confusionMatrix(svm_pred1, as.factor(K.Test.New.UD$subject))$overall[1]                            #0.8101
+
+#########################################               NEW - ISSE
+# Variables Unknown Stepwise Selection only UD
+set.seed(702)
+svm_tune<-tune(svm,factor(subject)~.,data = U.Train.New.UD,kernel="polynomial",
+               ranges = list(cost=c(0.01,0.1,1,5,10)),
+               degree=c(2, 3, 4, 5));    svm_best_model <- svm_tune$best.model
+set.seed(702)
+svm_model1<-svm(factor(subject)~.,data = U.Train.New.UD, kernel="polynomial",
+                cost=svm_best_model$cost, degree = svm_best_model$degree)
+svm_pred1<-predict(svm_model1,newdata = U.Test.New.UD, type = "class")
+  #Grouping
+pred.SVM=NULL
+for (i in unique(U.Test.New.UD$subject)){
+  tst.i=new.data=U.Test.New.UD[U.Test.New.UD$subject==i,-1]
+  pred.SVM=rbind(pred.SVM, table(predict(svm_model1, newdata=tst.i, type = "class")))
+}; rownames(pred.SVM)=paste(unique(U.Test.New.UD$subject))
+mean(unique(U.Test.New.UD$subject) == colnames(pred.SVM)[apply(pred.SVM, 1, which.max)])           #0.8235
+  #Obs
+confusionMatrix(svm_pred1, as.factor(U.Test.New.UD$subject))$overall[1]                            #0.5879
+
+#########################################               NEW
+# PCA
+set.seed(702)
+svm_tune<-tune(svm,factor(subject)~.,data = P.Train.UD,kernel="polynomial",
+               ranges = list(cost=c(0.01,0.1,1,5,10)),
+               degree=c(2, 3, 4, 5));    svm_best_model <- svm_tune$best.model
+set.seed(702)
+svm_model1<-svm(factor(subject)~.,data = P.Train.UD, kernel="polynomial",
+                cost=svm_best_model$cost, degree = svm_best_model$degree)
+svm_pred1<-predict(svm_model1,newdata = P.Test.UD, type = "class")
+  #Grouping
+pred.SVM=NULL
+for (i in unique(P.Test.UD$subject)){
+  tst.i=new.data=P.Test.UD[P.Test.UD$subject==i,-1]
+  pred.SVM=rbind(pred.SVM, table(predict(svm_model1, newdata=tst.i, type = "class")))
+}; rownames(pred.SVM)=paste(unique(P.Test.UD$subject))
+mean(unique(P.Test.UD$subject) == colnames(pred.SVM)[apply(pred.SVM, 1, which.max)])           #1
+  #Obs
+confusionMatrix(svm_pred1, as.factor(P.Test.UD$subject))$overall[1]                            #0.7961
+```
+
+```{R, SVM linear only UD, echo = F, warnings = F, errors = F, messages = F}
+#########################################
+# Original only UD
+set.seed(702)
+svm_tune<-tune(svm,factor(subject)~.,data = O.Train.UD,kernel="linear",
+               ranges = list(cost=c(0.01,0.1,1,5,10)));    svm_best_model <- svm_tune$best.model
+set.seed(702)
+svm_model1<-svm(factor(subject)~.,data = O.Train.UD, kernel="linear",
+                cost=svm_best_model$cost)
+svm_pred1<-predict(svm_model1,newdata = O.Test.UD, type = "class")
+  #Grouping
+pred.SVM=NULL
+for (i in unique(O.Test.UD$subject)){
+  tst.i=new.data=O.Test.UD[O.Test.UD$subject==i,-1]
+  pred.SVM=rbind(pred.SVM, table(predict(svm_model1, newdata=tst.i, type = "class")))
+}; rownames(pred.SVM)=paste(unique(O.Test.UD$subject))
+mean(unique(O.Test.UD$subject) == colnames(pred.SVM)[apply(pred.SVM, 1, which.max)])           #1
+  #Obs
+confusionMatrix(svm_pred1, as.factor(O.Test.UD$subject))$overall[1]                            #.8776
+
+
+#########################################
+# Mutated only UD
+set.seed(702)
+svm_tune<-tune(svm,factor(subject)~.,data = M.Train.UD,kernel="linear",
+               ranges = list(cost=c(0.01,0.1,1,5,10)));    svm_best_model <- svm_tune$best.model
+set.seed(702)
+svm_model1<-svm(factor(subject)~.,data = M.Train.UD, kernel="linear",
+                cost=svm_best_model$cost)
+svm_pred1<-predict(svm_model1,newdata = M.Test.UD, type = "class")
+  #Grouping
+pred.SVM=NULL
+for (i in unique(M.Test.UD$subject)){
+  tst.i=new.data=M.Test.UD[M.Test.UD$subject==i,-1]
+  pred.SVM=rbind(pred.SVM, table(predict(svm_model1, newdata=tst.i, type = "class")))
+}; rownames(pred.SVM)=paste(unique(M.Test.UD$subject))
+mean(unique(M.Test.UD$subject) == colnames(pred.SVM)[apply(pred.SVM, 1, which.max)])           #1
+  #Obs
+confusionMatrix(svm_pred1, as.factor(M.Test.UD$subject))$overall[1]                            #.7975
+
+#########################################                 NEW
+# Variables Known Stepwise Selection only UD
+set.seed(702)
+svm_tune<-tune(svm,factor(subject)~.,data = K.Train.New.UD,kernel="linear",
+               ranges = list(cost=c(0.01,0.1,1,5,10)));    svm_best_model <- svm_tune$best.model
+set.seed(702)
+svm_model1<-svm(factor(subject)~.,data = K.Train.New.UD, kernel="linear",
+                cost=svm_best_model$cost)
+svm_pred1<-predict(svm_model1,newdata = K.Test.New.UD, type = "class")
+  #Grouping
+pred.SVM=NULL
+for (i in unique(K.Test.New.UD$subject)){
+  tst.i=new.data=K.Test.New.UD[K.Test.New.UD$subject==i,-1]
+  pred.SVM=rbind(pred.SVM, table(predict(svm_model1, newdata=tst.i, type = "class")))
+}; rownames(pred.SVM)=paste(unique(K.Test.New.UD$subject))
+mean(unique(K.Test.New.UD$subject) == colnames(pred.SVM)[apply(pred.SVM, 1, which.max)])           #1
+  #Obs
+confusionMatrix(svm_pred1, as.factor(K.Test.New.UD$subject))$overall[1]                            #0.8537
+
+#########################################                   NEW
+# Variables Unknown Stepwise Selection only UD
+set.seed(702)
+svm_tune<-tune(svm,factor(subject)~.,data = U.Train.New.UD,kernel="linear",
+               ranges = list(cost=c(0.01,0.1,1,5,10)));    svm_best_model <- svm_tune$best.model
+set.seed(702)
+svm_model1<-svm(factor(subject)~.,data = U.Train.New.UD, kernel="linear",
+                cost=svm_best_model$cost)
+svm_pred1<-predict(svm_model1,newdata = U.Test.New.UD, type = "class")
+  #Grouping
+pred.SVM=NULL
+for (i in unique(U.Test.New.UD$subject)){
+  tst.i=new.data=U.Test.New.UD[U.Test.New.UD$subject==i,-1]
+  pred.SVM=rbind(pred.SVM, table(predict(svm_model1, newdata=tst.i, type = "class")))
+}; rownames(pred.SVM)=paste(unique(U.Test.New.UD$subject))
+mean(unique(U.Test.New.UD$subject) == colnames(pred.SVM)[apply(pred.SVM, 1, which.max)])           #0.9216
+  #Obs
+confusionMatrix(svm_pred1, as.factor(U.Test.New.UD$subject))$overall[1]                            #0.6568
+
+#########################################                   NEW
+# PCA
+set.seed(702)
+svm_tune<-tune(svm,factor(subject)~.,data = P.Train.UD,kernel="linear",
+               ranges = list(cost=c(0.01,0.1,1,5,10)));    svm_best_model <- svm_tune$best.model
+set.seed(702)
+svm_model1<-svm(factor(subject)~.,data = P.Train.UD, kernel="linear",
+                cost=svm_best_model$cost)
+svm_pred1<-predict(svm_model1,newdata = P.Test.UD, type = "class")
+  #Grouping
+pred.SVM=NULL
+for (i in unique(P.Test.UD$subject)){
+  tst.i=new.data=P.Test.UD[P.Test.UD$subject==i,-1]
+  pred.SVM=rbind(pred.SVM, table(predict(svm_model1, newdata=tst.i, type = "class")))
+}; rownames(pred.SVM)=paste(unique(P.Test.UD$subject))
+mean(unique(P.Test.UD$subject) == colnames(pred.SVM)[apply(pred.SVM, 1, which.max)])           #0.9216
+  #Obs
+confusionMatrix(svm_pred1, as.factor(P.Test.UD$subject))$overall[1]                            #0.6568
+```
+
+
+
+
+```{R, Mclust 1 both UD and DD, echo = F, warnings = F, errors = F, messages = F}
+#########################################
+# Original
+set.seed(702)
+K.Mclust1 <- MclustDA(O.Train[,2:34], O.Train[,1], G = 1)
+K.Mclust1.pred <- predict.MclustDA(K.Mclust1, newdata = O.Test[,-1])$classification
+  #Grouping
+pred.Clust=NULL
+for (i in unique(O.Test$subject)){
+  tst.i=new.data=O.Test[O.Test$subject==i,-1]
+  pred.Clust=rbind(pred.Clust,table(predict(K.Mclust1, newdata=tst.i)$classification))
+}; rownames(pred.Clust)=paste(unique(O.Test$subject))
+mean(unique(O.Test$subject) == colnames(pred.Clust)[apply(pred.Clust, 1, which.max)])      #.8627
+  #Obs
+confusionMatrix((K.Mclust1.pred), (O.Test$subject))$overall[1]                             #.6596
+
+#########################################   - ISSE
+# Mutated
+set.seed(702)
+K.Mclust1 <- MclustDA(M.Train[,2:28], M.Train[,1], G = 1)
+K.Mclust1.pred <- predict.MclustDA(K.Mclust1, newdata = M.Test[,-1])$classification
+  #Grouping
+pred.Clust=NULL
+for (i in unique(M.Test$subject)){
+  tst.i=new.data=M.Test[M.Test$subject==i,-1]
+  pred.Clust=rbind(pred.Clust,table(predict(K.Mclust1, newdata=tst.i)$classification))
+}; rownames(pred.Clust)=paste(unique(M.Test$subject))
+mean(unique(M.Test$subject) == colnames(pred.Clust)[apply(pred.Clust, 1, which.max)])      #.7647
+  #Obs
+confusionMatrix((K.Mclust1.pred), (M.Test$subject))$overall[1]                             #.5527
+
+#########################################           NEW
+# Variables Known Stepwise Selection
+set.seed(702)
+K.Mclust1 <- MclustDA(K.Train.New[,2:18], K.Train.New[,1], G = 1)
+K.Mclust1.pred <- predict.MclustDA(K.Mclust1, newdata = K.Test.New[,-1])$classification
+  #Grouping
+pred.Clust=NULL
+for (i in unique(K.Test.New$subject)){
+  tst.i=new.data=K.Test.New[K.Test.New$subject==i,-1]
+  pred.Clust=rbind(pred.Clust,table(predict(K.Mclust1, newdata=tst.i)$classification))
+}; rownames(pred.Clust)=paste(unique(K.Test.New$subject))
+mean(unique(K.Test.New$subject) == colnames(pred.Clust)[apply(pred.Clust, 1, which.max)])      #0.7451
+  #Obs
+confusionMatrix((K.Mclust1.pred), (K.Test.New$subject))$overall[1]                             #0.5809
+
+######################################### - ISSUE
+# Variables Unknown Stepwise Selection
+set.seed(702)
+K.Mclust1 <- MclustDA(U.Train.New[,2:14], U.Train.New[,1], G = 1)
+K.Mclust1.pred <- predict.MclustDA(K.Mclust1, newdata = U.Test.New[,-1])$classification
+  #Grouping
+pred.Clust=NULL
+for (i in unique(U.Test.New$subject)){
+  tst.i=new.data=U.Test.New[U.Test.New$subject==i,-1]
+  pred.Clust=rbind(pred.Clust,table(predict(K.Mclust1, newdata=tst.i)$classification))
+}; rownames(pred.Clust)=paste(unique(U.Test.New$subject))
+mean(unique(U.Test.New$subject) == colnames(pred.Clust)[apply(pred.Clust, 1, which.max)])      #0.8235
+  #Obs
+confusionMatrix((K.Mclust1.pred), (U.Test.New$subject))$overall[1]                             #0.5682
+
+#########################################
+# PCA
+set.seed(702)
+K.Mclust1 <- MclustDA(P.Train[,2:34], P.Train[,1], G = 1)
+K.Mclust1.pred <- predict.MclustDA(K.Mclust1, newdata = P.Test[,-1])$classification
+  #Grouping
+pred.Clust=NULL
+for (i in unique(P.Test$subject)){
+  tst.i=new.data=P.Test[P.Test$subject==i,-1]
+  pred.Clust=rbind(pred.Clust,table(predict(K.Mclust1, newdata=tst.i)$classification))
+}; rownames(pred.Clust)=paste(unique(P.Test$subject))
+mean(unique(P.Test$subject) == colnames(pred.Clust)[apply(pred.Clust, 1, which.max)])      #0.9412
+  #Obs
+confusionMatrix((K.Mclust1.pred), (P.Test$subject))$overall[1]                             #0.7384
+```
+
+```{R, Mclust only UD , echo = F, warnings = F, errors = F, messages = F}
+#########################################
+# Original only UD 
+set.seed(702)
+K.Mclust1 <- MclustDA(O.Train.UD[,2:24], O.Train.UD[,1], G = 1)
+K.Mclust1.pred <- predict.MclustDA(K.Mclust1, newdata = O.Test.UD[,-1])$classification
+  #Grouping
+pred.Clust=NULL
+for (i in unique(O.Test.UD$subject)){
+  tst.i=new.data=O.Test.UD[O.Test.UD$subject==i,-1]
+  pred.Clust=rbind(pred.Clust,table(predict(K.Mclust1, newdata=tst.i)$classification))
+}; rownames(pred.Clust)=paste(unique(O.Test.UD$subject))
+mean(unique(O.Test.UD$subject) == colnames(pred.Clust)[apply(pred.Clust, 1, which.max)])      #.8431
+  #Obs
+confusionMatrix((K.Mclust1.pred), (O.Test.UD$subject))$overall[1]                             #.6428
+
+#########################################
+# Mutated only UD 
+set.seed(702)
+K.Mclust1 <- MclustDA(M.Train.UD[,2:18], M.Train.UD[,1], G = 1)
+K.Mclust1.pred <- predict.MclustDA(K.Mclust1, newdata = M.Test.UD[,-1])$classification
+  #Grouping
+pred.Clust=NULL
+for (i in unique(M.Test.UD$subject)){
+  tst.i=new.data=M.Test.UD[M.Test.UD$subject==i,-1]
+  pred.Clust=rbind(pred.Clust,table(predict(K.Mclust1, newdata=tst.i)$classification))
+}; rownames(pred.Clust)=paste(unique(M.Test.UD$subject))
+mean(unique(M.Test.UD$subject) == colnames(pred.Clust)[apply(pred.Clust, 1, which.max)])      #.6275
+  #Obs
+confusionMatrix((K.Mclust1.pred), (M.Test.UD$subject))$overall[1]                             #.4571
+
+#########################################               NEW
+# Variables Known Stepwise Selection only UD 
+set.seed(702)
+K.Mclust1 <- MclustDA(K.Train.UD[,2:19], K.Train.New.UD[,1], G = 1)
+K.Mclust1.pred <- predict.MclustDA(K.Mclust1, newdata = K.Test.New.UD[,-1])$classification
+  #Grouping
+pred.Clust=NULL
+for (i in unique(K.Test.New.UD$subject)){
+  tst.i=new.data=K.Test.New.UD[K.Test.New.UD$subject==i,-1]
+  pred.Clust=rbind(pred.Clust,table(predict(K.Mclust1, newdata=tst.i)$classification))
+}; rownames(pred.Clust)=paste(unique(K.Test.New.UD$subject))
+mean(unique(K.Test.New.UD$subject) == colnames(pred.Clust)[apply(pred.Clust, 1, which.max)])      #.8039
+  #Obs
+confusionMatrix((K.Mclust1.pred), (K.Test.New.UD$subject))$overall[1]                             #.6203
+
+#########################################
+# Variables Unknown Stepwise Selection only UD 
+set.seed(702)
+K.Mclust1 <- MclustDA(U.Train.New.UD[,2:10], U.Train.New.UD[,1], G = 1)
+K.Mclust1.pred <- predict.MclustDA(K.Mclust1, newdata = U.Test.New.UD[,-1])$classification
+  #Grouping
+pred.Clust=NULL
+for (i in unique(U.Test.New.UD$subject)){
+  tst.i=new.data=U.Test.New.UD[U.Test.New.UD$subject==i,-1]
+  pred.Clust=rbind(pred.Clust,table(predict(K.Mclust1, newdata=tst.i)$classification))
+}; rownames(pred.Clust)=paste(unique(U.Test.New.UD$subject))
+mean(unique(U.Test.New.UD$subject) == colnames(pred.Clust)[apply(pred.Clust, 1, which.max)])      #0.8431
+  #Obs
+confusionMatrix((K.Mclust1.pred), (U.Test.New.UD$subject))$overall[1]                             #0.6076
+
+#########################################
+# PCA
+set.seed(702)
+K.Mclust1 <- MclustDA(P.Train.UD[,2:24], P.Train.UD[,1], G = 1)
+K.Mclust1.pred <- predict.MclustDA(K.Mclust1, newdata = P.Test.UD[,-1])$classification
+  #Grouping
+pred.Clust=NULL
+for (i in unique(P.Test.UD$subject)){
+  tst.i=new.data=P.Test.UD[P.Test.UD$subject==i,-1]
+  pred.Clust=rbind(pred.Clust,table(predict(K.Mclust1, newdata=tst.i)$classification))
+}; rownames(pred.Clust)=paste(unique(P.Test.UD$subject))
+mean(unique(P.Test.UD$subject) == colnames(pred.Clust)[apply(pred.Clust, 1, which.max)])      #0.7255
+  #Obs
+confusionMatrix((K.Mclust1.pred), (P.Test.UD$subject))$overall[1]                             #0.5302
+```
+
+
+```{R, Mclust EDDA both UD and DD, echo = F, warnings = F, errors = F, messages = F}
+#########################################
+# Original
+set.seed(702)
+K.Mclust1 <- MclustDA(O.Train[,2:34], O.Train[,1], G = 1, modelType = "EDDA")
+K.Mclust1.pred <- predict.MclustDA(K.Mclust1, newdata = O.Test[,-1])$classification
+  #Grouping
+pred.Clust=NULL
+for (i in unique(O.Test$subject)){
+  tst.i=new.data=O.Test[O.Test$subject==i,-1]
+  pred.Clust=rbind(pred.Clust,table(predict(K.Mclust1, newdata=tst.i)$classification))
+}; rownames(pred.Clust)=paste(unique(O.Test$subject))
+mean(unique(O.Test$subject) == colnames(pred.Clust)[apply(pred.Clust, 1, which.max)])      #1
+  #Obs
+confusionMatrix((K.Mclust1.pred), (O.Test$subject))$overall[1]                             #.8734
+
+#########################################
+# Mutated
+set.seed(702)
+K.Mclust1 <- MclustDA(M.Train[,2:28], M.Train[,1], G = 1, modelType = "EDDA")
+K.Mclust1.pred <- predict.MclustDA(K.Mclust1, newdata = M.Test[,-1])$classification
+  #Grouping
+pred.Clust=NULL
+for (i in unique(M.Test$subject)){
+  tst.i=new.data=M.Test[M.Test$subject==i,-1]
+  pred.Clust=rbind(pred.Clust,table(predict(K.Mclust1, newdata=tst.i)$classification))
+}; rownames(pred.Clust)=paste(unique(M.Test$subject))
+mean(unique(M.Test$subject) == colnames(pred.Clust)[apply(pred.Clust, 1, which.max)])      #1
+  #Obs  
+confusionMatrix((K.Mclust1.pred), (M.Test$subject))$overall[1]                             #.8551
+
+#########################################               NEW
+# Variables Known Stepwise Selection
+set.seed(702)
+K.Mclust1 <- MclustDA(K.Train.New[,2:28], K.Train.New[,1], G = 1, modelType = "EDDA")
+K.Mclust1.pred <- predict.MclustDA(K.Mclust1, newdata = K.Test.New[,-1])$classification
+  #Grouping
+pred.Clust=NULL
+for (i in unique(K.Test.New$subject)){
+  tst.i=new.data=K.Test.New[K.Test.New$subject==i,-1]
+  pred.Clust=rbind(pred.Clust,table(predict(K.Mclust1, newdata=tst.i)$classification))
+}; rownames(pred.Clust)=paste(unique(K.Test.New$subject))
+mean(unique(K.Test.New$subject) == colnames(pred.Clust)[apply(pred.Clust, 1, which.max)])      #1
+  #Obs
+confusionMatrix((K.Mclust1.pred), (K.Test.New$subject))$overall[1]                             #0.8678
+
+#########################################       NEW
+# Variables Unknown Stepwise Selection
+set.seed(702)
+K.Mclust1 <- MclustDA(U.Train.New[,2:14], U.Train.New[,1], G = 1, modelType = "EDDA")
+K.Mclust1.pred <- predict.MclustDA(K.Mclust1, newdata = U.Test.New[,-1])$classification
+  #Grouping
+pred.Clust=NULL
+for (i in unique(U.Test.New$subject)){
+  tst.i=new.data=U.Test.New[U.Test.New$subject==i,-1]
+  pred.Clust=rbind(pred.Clust,table(predict(K.Mclust1, newdata=tst.i)$classification))
+}; rownames(pred.Clust)=paste(unique(U.Test.New$subject))
+mean(unique(U.Test.New$subject) == colnames(pred.Clust)[apply(pred.Clust, 1, which.max)])      #0.9412
+  #Obs
+confusionMatrix((K.Mclust1.pred), (U.Test.New$subject))$overall[1]                             #0.6962
+
+#########################################       NEW
+# PCA
+set.seed(702)
+K.Mclust1 <- MclustDA(P.Train[,2:34], P.Train[,1], G = 1, modelType = "EDDA")
+K.Mclust1.pred <- predict.MclustDA(K.Mclust1, newdata = P.Test[,-1])$classification
+  #Grouping
+pred.Clust=NULL
+for (i in unique(P.Test$subject)){
+  tst.i=new.data=P.Test[P.Test$subject==i,-1]
+  pred.Clust=rbind(pred.Clust,table(predict(K.Mclust1, newdata=tst.i)$classification))
+}; rownames(pred.Clust)=paste(unique(P.Test$subject))
+mean(unique(P.Test$subject) == colnames(pred.Clust)[apply(pred.Clust, 1, which.max)])      #0.9608
+  #Obs
+confusionMatrix((K.Mclust1.pred), (P.Test$subject))$overall[1]                             #0.7511
+```
+
+
+
+```{R, Mclust EDDA only UD, echo = F, warnings = F, errors = F, messages = F}
+#########################################
+# Original only UD 
+set.seed(702)
+K.Mclust1 <- MclustDA(O.Train.UD[,2:24], O.Train.UD[,1], G = 1, modelType = "EDDA")
+K.Mclust1.pred <- predict.MclustDA(K.Mclust1, newdata = O.Test.UD[,-1])$classification
+  #Grouping
+pred.Clust=NULL
+for (i in unique(O.Test.UD$subject)){
+  tst.i=new.data=O.Test.UD[O.Test.UD$subject==i,-1]
+  pred.Clust=rbind(pred.Clust,table(predict(K.Mclust1, newdata=tst.i)$classification))
+}; rownames(pred.Clust)=paste(unique(O.Test.UD$subject))
+mean(unique(O.Test.UD$subject) == colnames(pred.Clust)[apply(pred.Clust, 1, which.max)])      #.9804
+  #Obs
+confusionMatrix((K.Mclust1.pred), (O.Test.UD$subject))$overall[1]                             #.8242
+
+#########################################
+# Mutated only UD 
+set.seed(702)
+K.Mclust1 <- MclustDA(M.Train.UD[,2:18], M.Train.UD[,1], G = 1, modelType = "EDDA")
+K.Mclust1.pred <- predict.MclustDA(K.Mclust1, newdata = M.Test.UD[,-1])$classification
+  #Grouping
+pred.Clust=NULL
+for (i in unique(M.Test.UD$subject)){
+  tst.i=new.data=M.Test.UD[M.Test.UD$subject==i,-1]
+  pred.Clust=rbind(pred.Clust,table(predict(K.Mclust1, newdata=tst.i)$classification))
+}; rownames(pred.Clust)=paste(unique(M.Test.UD$subject))
+mean(unique(M.Test.UD$subject) == colnames(pred.Clust)[apply(pred.Clust, 1, which.max)])      #.9608
+  #Obs
+confusionMatrix((K.Mclust1.pred), (M.Test.UD$subject))$overall[1]                             #.7356
+
+#########################################           NEW
+# Variables Known Stepwise Selection only UD 
+set.seed(702)
+K.Mclust1 <- MclustDA(K.Train.New.UD[,2:19], K.Train.New.UD[,1], G = 1, modelType = "EDDA")
+K.Mclust1.pred <- predict.MclustDA(K.Mclust1, newdata = K.Test.New.UD[,-1])$classification
+  #Grouping
+pred.Clust=NULL
+for (i in unique(K.Test.New.UD$subject)){
+  tst.i=new.data=K.Test.New.UD[K.Test.New.UD$subject==i,-1]
+  pred.Clust=rbind(pred.Clust,table(predict(K.Mclust1, newdata=tst.i)$classification))
+}; rownames(pred.Clust)=paste(unique(K.Test.New.UD$subject))
+mean(unique(K.Test.New.UD$subject) == colnames(pred.Clust)[apply(pred.Clust, 1, which.max)])      #1
+  #Obs
+confusionMatrix((K.Mclust1.pred), (K.Test.New.UD$subject))$overall[1]                             #0.7693
+
+#########################################                 NEW
+# Variables Unknown Stepwise Selection only UD 
+set.seed(702)
+K.Mclust1 <- MclustDA(U.Train.New.UD[,2:10], U.Train.New.UD[,1], G = 1, modelType = "EDDA")
+K.Mclust1.pred <- predict.MclustDA(K.Mclust1, newdata = U.Test.New.UD[,-1])$classification
+  #Grouping
+pred.Clust=NULL
+for (i in unique(U.Test.New.UD$subject)){
+  tst.i=new.data=U.Test.New.UD[U.Test.New.UD$subject==i,-1]
+  pred.Clust=rbind(pred.Clust,table(predict(K.Mclust1, newdata=tst.i)$classification))
+}; rownames(pred.Clust)=paste(unique(U.Test.New.UD$subject))
+mean(unique(U.Test.New.UD$subject) == colnames(pred.Clust)[apply(pred.Clust, 1, which.max)])      #0.8039
+  #Obs
+confusionMatrix((K.Mclust1.pred), (U.Test.New.UD$subject))$overall[1]                             #0.5724
+
+#########################################                 NEW
+# PCA
+set.seed(702)
+K.Mclust1 <- MclustDA(P.Train.UD[,2:24], P.Train.UD[,1], G = 1, modelType = "EDDA")
+K.Mclust1.pred <- predict.MclustDA(K.Mclust1, newdata = P.Test.UD[,-1])$classification
+  #Grouping
+pred.Clust=NULL
+for (i in unique(P.Test.UD$subject)){
+  tst.i=new.data=P.Test.UD[P.Test.UD$subject==i,-1]
+  pred.Clust=rbind(pred.Clust,table(predict(K.Mclust1, newdata=tst.i)$classification))
+}; rownames(pred.Clust)=paste(unique(P.Test.UD$subject))
+mean(unique(P.Test.UD$subject) == colnames(pred.Clust)[apply(pred.Clust, 1, which.max)])      #0.9804
+  #Obs
+confusionMatrix((K.Mclust1.pred), (P.Test.UD$subject))$overall[1]                             #0.7426
+```
+
